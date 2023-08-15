@@ -2,7 +2,9 @@ package obacktracing
 
 import "core:c"
 import "core:c/libc"
+import "core:fmt"
 import "core:os"
+import "core:runtime"
 import "core:slice"
 import "core:strings"
 
@@ -174,4 +176,20 @@ backtrace_messages :: proc(
 	}
 
 	return
+}
+
+assertion_failure_proc :: proc(prefix, message: string, loc: runtime.Source_Code_Location) -> ! {
+    t := backtrace_get(17)
+    msgs, err := backtrace_messages(t)
+    if err != nil {
+        fmt.printf("could not get backtrace for assertion failure: %v\n", err)
+        runtime.default_assertion_failure_proc(prefix, message, loc)
+    } else {
+        fmt.println("[back trace]")
+		for msg in msgs[min(1, len(msgs)-1):] {
+			fmt.printf("    %s - %s\n", msg.symbol, msg.location)
+		}
+
+        runtime.default_assertion_failure_proc(prefix, message, loc)
+    }
 }

@@ -15,7 +15,7 @@ package manual
 
 import "core:fmt"
 
-import bt "../.."
+import bt "obacktracing"
 
 main :: proc() {
 	trace := bt.backtrace_get(16)
@@ -46,7 +46,7 @@ main :: proc() {
 ```odin
 package main
 
-import bt "../.."
+import bt "obacktracing"
 
 _main :: proc() {
 	_ = new(int)
@@ -88,4 +88,30 @@ main :: proc() {
 //     ?? - /lib/x86_64-linux-gnu/libc.so.6(+0x29d90) [0x7ff775229d90]
 //     ?? - /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x80) [0x7ff775229e40]
 //     _start - /home/laytan/projects/obacktracing/allocator() [0x401135]
+```
+
+## Printing a backtrace on assertion failures / panics
+
+```odin
+package main
+
+import bt "obacktracing"
+
+main :: proc() {
+    context.assertion_failure_proc = bt.assertion_failure_proc
+    assert(3 == 2)
+}
+
+// $ odin run examples/assert_backtrace -debug
+// [back trace]
+//     obacktracing.assertion_failure_proc - /home/laytan/projects/obacktracing/obacktracing.odin:182
+//     runtime.assert.internal-0 - /home/laytan/third-party/Odin/core/runtime/core_builtin.odin:812
+//     runtime.assert - /home/laytan/third-party/Odin/core/runtime/core_builtin.odin:816
+//     main.main - /home/laytan/projects/obacktracing/examples/assert_backtrace/main.odin:10
+//     main - /home/laytan/third-party/Odin/core/runtime/entry_unix.odin:30
+//     ?? - /lib/x86_64-linux-gnu/libc.so.6(+0x29d90) [0x7f22e9429d90]
+//     ?? - /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x80) [0x7f22e9429e40]
+//     _start - /home/laytan/projects/obacktracing/assert_backtrace() [0x401135]
+// /home/laytan/projects/obacktracing/examples/assert_backtrace/main.odin(9:5) runtime assertion
+// Illegal instruction (core dumped)
 ```
