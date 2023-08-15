@@ -2,17 +2,12 @@ package obacktracing
 
 import "core:c"
 import "core:c/libc"
-import "core:fmt"
 import "core:os"
+import "core:slice"
 import "core:strings"
-import "core:sync"
-import "core:thread"
-import "core:mem"
-import "core:runtime"
 
-// NOTE: not sure if this works on anything other than linux.
 when ODIN_OS == .Windows {
-	foreign import libc_ "system:libucrt.lib"
+    #panic("obacktracing does not support Windows")
 } else when ODIN_OS == .Darwin {
 	foreign import libc_ "system:System.framework"
 } else {
@@ -24,73 +19,53 @@ foreign libc_ {
 	backtrace_symbols :: proc(buffer: [^]rawptr, size: c.int) -> [^]cstring ---
 	backtrace_symbols_fd :: proc(buffer: [^]rawptr, size: c.int, fd: ^libc.FILE) ---
 
-    @private
+	@(private)
 	popen :: proc(command: cstring, type: cstring) -> ^libc.FILE ---
-    @private
+	@(private)
 	pclose :: proc(stream: ^libc.FILE) -> c.int ---
 }
 
-backtrace_get :: proc($N: c.int) -> (backt: [^]cstring, size: c.int) {
-	trace: [N]rawptr
-	trace_ptr := raw_data(trace[:])
-	size = backtrace(trace_ptr, N)
-	backt = backtrace_symbols(trace_ptr, size)
-	return
+Backtrace :: []rawptr
+
+backtrace_get :: proc(max_len: i32, allocator := context.allocator) -> Backtrace {
+	trace := make(Backtrace, max_len, allocator)
+	size := backtrace(raw_data(trace), max_len)
+	return trace[:size]
 }
 
-backtrace_delete :: proc(backtrace: [^]cstring) {
-	libc.free(backtrace)
+backtrace_delete :: proc(b: Backtrace) {
+	delete(b)
+}
+
+Message :: struct {
+	location: string,
+	symbol:   string,
+}
+
+messages_delete :: proc(msgs: []Message) {
+	for msg in msgs do message_delete(msg)
+	delete(msgs)
+}
+
+message_delete :: proc(m: Message) {
+	delete(m.location)
+
+	// There is no symbol info outside of debug mode.
+	when ODIN_DEBUG do delete(m.symbol)
 }
 
 Message_Error :: enum {
-    Not_Debug,
-    Parse_Address_Fail,
-    Addr2line_No_Output,
-    Addr2line_Output_Error,
-    Addr2line_Unresolved,
-    Fork_Limited         = int(os.EAGAIN),
-    Out_Of_Memory        = int(os.ENOMEM),
-    Invalid_Fd           = int(os.EFAULT),
-    Pipe_Process_Limited = int(os.EMFILE),
-    Pipe_System_Limited  = int(os.ENFILE),
-    Fork_Not_Supported   = int(os.ENOSYS),
-}
-
-// Processes all lines of the backtrace using backtrace_message() multithreaded.
-// TODO: errors
-// TODO: accept allocator
-backtrace_messages :: proc(backtrace: [^]cstring, size: c.int) -> []string {
-    size := int(size)
-    out := make([]string, size)
-    when !ODIN_DEBUG {
-        for message, i in backtrace[:size] {
-            out[i] = strings.clone_from(message)
-        }
-    } else {
-        wg: sync.Wait_Group
-        num_threads := min(size, os.processor_core_count())
-        sync.wait_group_add(&wg, size)
-        for message, i in backtrace[:size] {
-            thread.create_and_start_with_poly_data4(
-                &wg,
-                message,
-                &out,
-                i,
-                proc(wg: ^sync.Wait_Group, message: cstring, out: ^[]string, i: int) {
-                    defer sync.wait_group_done(wg)
-                    msg, err := backtrace_message(message)
-                    assert(err == nil || err == .Addr2line_Unresolved)
-                    out^[i] = msg
-                },
-                context,
-                self_cleanup = true,
-            )
-        }
-
-        sync.wait_group_wait(&wg)
-    }
-
-    return out
+	None,
+	Parse_Address_Fail,
+	Addr2line_Unexpected_EOF,
+	Addr2line_Output_Error,
+	Addr2line_Unresolved,
+	Fork_Limited = int(os.EAGAIN),
+	Out_Of_Memory = int(os.ENOMEM),
+	Invalid_Fd = int(os.EFAULT),
+	Pipe_Process_Limited = int(os.EMFILE),
+	Pipe_System_Limited = int(os.ENFILE),
+	Fork_Not_Supported = int(os.ENOSYS),
 }
 
 // Processes the message trying to get more/useful information.
@@ -100,241 +75,102 @@ backtrace_messages :: proc(backtrace: [^]cstring, size: c.int) -> []string {
 // You can leave this nil and it will default to os.args[0].
 //
 // If an error is returned the original message will be the result and is save to use.
-backtrace_message :: proc(
-    msg: cstring,
-    program: Maybe(string) = nil,
-    allocator := context.allocator,
-) -> (string, Message_Error) {
-	when !ODIN_DEBUG {
-        return strings.clone_from(msg, allocator), nil
-    } else {
-        // Parses the address out of a backtrace line.
-        // Example: .../main() [0x100000] -> 0x100000
-        parse_address :: proc(msg: cstring) -> (string, bool) {
-            multi := transmute([^]byte)msg
-            msg_len := len(msg)
-            start := -1
-            #reverse for c, i in multi[:msg_len] {
-                if c == '[' {
-                    return string(multi[i+1:msg_len-1]), true
-                }
-            }
-            return "", false
-        }
-
-        addr, ok := parse_address(msg)
-        if !ok do return strings.clone_from(msg, allocator), .Parse_Address_Fail
-
-        p := program.? or_else os.args[0]
-        command := fmt.caprintf("addr2line %s -e %s", addr, p)
-        defer delete(command)
-
-        fp := popen(command, "r")
-        if fp == nil do return strings.clone_from(msg, allocator), Message_Error(libc.errno()^)
-        defer pclose(fp)
-
-        out, merr := make([]byte, 4096)
-        if merr != nil do return strings.clone_from(msg, allocator), .Out_Of_Memory
-        defer delete(out)
-
-        got := libc.fgets(raw_data(out), c.int(len(out)), fp)
-        if got == nil {
-            ret := strings.clone_from(msg, allocator)
-            ferr := Message_Error.Addr2line_Output_Error
-            if libc.feof(fp) == 0 do ferr = .Addr2line_No_Output
-            return ret, ferr
-        }
-
-        // Some lines just can't be found, not necessarily an error.
-        if out[0] == '?' && out[1] == '?' {
-            return strings.clone_from(msg, allocator), .Addr2line_Unresolved
-        }
-
-        cout := cstring(raw_data(out))
-        ret := strings.clone_from(cout, allocator)
-        ret = strings.trim_right_space(ret)
-        return ret, nil
-    }
-
-    unreachable()
-}
-
-// The backtrace tracking allocator is the same allocator as the core tracking allocator but keeps
-// backtraces for each allocation.
-// See examples/allocator for a usage snippet.
-Backtrace_Tracking_Allocator :: struct {
-	backing:           mem.Allocator,
-	allocation_map:    map[rawptr]Backtrace_Tracking_Allocator_Entry,
-	bad_free_array:    [dynamic]Backtrace_Tracking_Allocator_Bad_Free_Entry,
-	mutex:             sync.Mutex,
-	clear_on_free_all: bool,
-}
-
-Backtrace_Tracking_Allocator_Entry :: struct {
-	memory:         rawptr,
-	size:           int,
-	alignment:      int,
-	mode:           mem.Allocator_Mode,
-	err:            mem.Allocator_Error,
-	backtrace:      [^]cstring,
-	backtrace_size: c.int,
-	location:       runtime.Source_Code_Location,
-}
-
-Backtrace_Tracking_Allocator_Bad_Free_Entry :: struct {
-	memory:   rawptr,
-	location: runtime.Source_Code_Location,
-	backtrace:      [^]cstring,
-	backtrace_size: c.int,
-}
-
-backtrace_tracking_allocator_init :: proc(
-	t: ^Backtrace_Tracking_Allocator,
-	backing_allocator: mem.Allocator,
-	internals_allocator := context.allocator,
-) {
-	t.backing = backing_allocator
-	t.allocation_map.allocator = internals_allocator
-	t.bad_free_array.allocator = internals_allocator
-
-	if .Free_All in mem.query_features(t.backing) {
-		t.clear_on_free_all = true
-	}
-}
-
-backtrace_tracking_allocator_destroy :: proc(t: ^Backtrace_Tracking_Allocator) {
-    for _, leak in t.allocation_map do backtrace_delete(leak.backtrace)
-	delete(t.allocation_map)
-
-    for bad_free in t.bad_free_array do backtrace_delete(bad_free.backtrace)
-	delete(t.bad_free_array)
-}
-
-
-backtrace_tracking_allocator_clear :: proc(t: ^Backtrace_Tracking_Allocator) {
-    sync.guard(&t.mutex)
-
-    for _, leak in t.allocation_map do backtrace_delete(leak.backtrace)
-    clear(&t.allocation_map)
-
-    for bad_free in t.bad_free_array do backtrace_delete(bad_free.backtrace)
-    clear(&t.bad_free_array)
-}
-
-@(require_results)
-backtrace_tracking_allocator :: proc(data: ^Backtrace_Tracking_Allocator) -> mem.Allocator {
-	return mem.Allocator{data = data, procedure = backtrace_tracking_allocator_proc}
-}
-
-backtrace_tracking_allocator_proc :: proc(
-	allocator_data: rawptr,
-	mode: mem.Allocator_Mode,
-	size, alignment: int,
-	old_memory: rawptr,
-	old_size: int,
-	loc := #caller_location,
+backtrace_messages :: proc(
+	bt: Backtrace,
+	program: Maybe(string) = nil,
+	addr2line_path: string = "addr2line",
+	allocator := context.allocator,
 ) -> (
-	result: []byte,
-	err: mem.Allocator_Error,
+	out: []Message,
+	err: Message_Error,
 ) {
-	data := (^Backtrace_Tracking_Allocator)(allocator_data)
+	context.allocator = allocator
 
-	sync.mutex_guard(&data.mutex)
+	msgs := backtrace_symbols(raw_data(bt), i32(len(bt)))[:len(bt)]
+	defer libc.free(raw_data(msgs))
 
-	if mode == .Query_Info {
-		info := (^mem.Allocator_Query_Info)(old_memory)
-		if info != nil && info.pointer != nil {
-			if entry, ok := data.allocation_map[info.pointer]; ok {
-				info.size = entry.size
-				info.alignment = entry.alignment
+	out = make([]Message, len(bt))
+
+	// Cop out of using addr2line when we know it won't work.
+	// Debug info is needed and only linux has the `addr2line` util.
+	when !ODIN_DEBUG || ODIN_OS != .Linux {
+		for msg, i in msgs {
+			out[i] = Message {
+				location = strings.clone_from(msg),
+				symbol   = "??",
 			}
-			info.pointer = nil
 		}
-
 		return
 	}
 
-	if mode == .Free && old_memory != nil && old_memory not_in data.allocation_map {
-        bt, bt_size := backtrace_get(16)
-		append(
-			&data.bad_free_array,
-			Backtrace_Tracking_Allocator_Bad_Free_Entry{
-                memory = old_memory,
-                location = loc,
-                backtrace = bt,
-                backtrace_size = bt_size,
-            },
-		)
-	} else {
-		result = data.backing.procedure(
-			data.backing.data,
-			mode,
-			size,
-			alignment,
-			old_memory,
-			old_size,
-			loc,
-		) or_return
-	}
-	result_ptr := raw_data(result)
-
-	if data.allocation_map.allocator.procedure == nil {
-		data.allocation_map.allocator = context.allocator
-	}
-
-	switch mode {
-	case .Alloc, .Alloc_Non_Zeroed:
-        bt, bt_size := backtrace_get(16)
-		data.allocation_map[result_ptr] = Backtrace_Tracking_Allocator_Entry {
-			memory         = result_ptr,
-			size           = size,
-			mode           = mode,
-			alignment      = alignment,
-			err            = err,
-			location       = loc,
-			backtrace      = bt,
-            backtrace_size = bt_size,
-		}
-	case .Free:
-		delete_key(&data.allocation_map, old_memory)
-	case .Free_All:
-		if data.clear_on_free_all {
-			clear_map(&data.allocation_map)
-		}
-	case .Resize:
-		if old_memory != result_ptr {
-			delete_key(&data.allocation_map, old_memory)
-		}
-        // TODO: allow changing depth.
-        bt, bt_size := backtrace_get(16)
-		data.allocation_map[result_ptr] = Backtrace_Tracking_Allocator_Entry {
-			memory         = result_ptr,
-			size           = size,
-			mode           = mode,
-			alignment      = alignment,
-			err            = err,
-			location       = loc,
-			backtrace      = bt,
-            backtrace_size = bt_size,
-		}
-
-	case .Query_Features:
-		set := (^mem.Allocator_Mode_Set)(old_memory)
-		if set != nil {
-			set^ = {
-				.Alloc,
-				.Alloc_Non_Zeroed,
-				.Free,
-				.Free_All,
-				.Resize,
-				.Query_Features,
-				.Query_Info,
+	// Parses the address out of a backtrace line.
+	// Example: .../main() [0x100000] -> 0x100000
+	parse_address :: proc(msg: cstring) -> (string, Message_Error) {
+		multi := transmute([^]byte)msg
+		msg_len := len(msg)
+		#reverse for c, i in multi[:msg_len] {
+			if c == '[' {
+				return string(multi[i + 1:msg_len - 1]), nil
 			}
 		}
-		return nil, nil
+		return "", .Parse_Address_Fail
+	}
 
-	case .Query_Info:
-		unreachable()
+	// Retrieves a line of output as an allocated string without the line break.
+	// buf is intended to be the same over multiple calls, and is zero'd at the end for reuse.
+	get_line :: proc(buf: []byte, fp: ^libc.FILE, default: cstring) -> (string, Message_Error) {
+		defer slice.zero(buf)
+
+		got := libc.fgets(raw_data(buf), c.int(len(buf)), fp)
+		if got == nil {
+			if libc.feof(fp) == 0 {
+				return "", .Addr2line_Unexpected_EOF
+			}
+			return "", .Addr2line_Output_Error
+		}
+
+		cout := cstring(raw_data(buf))
+		if buf[0] == '?' && buf[1] == '?' {
+			cout = default
+		}
+
+		ret := strings.clone_from(cout)
+		ret = strings.trim_right_space(ret)
+		return ret, nil
+	}
+
+	// Build command like: `{addr2line_path} {addresses} --functions --exe={program}`.
+	cmd_builder := strings.builder_make()
+	defer strings.builder_destroy(&cmd_builder)
+	strings.write_string(&cmd_builder, addr2line_path)
+	for msg in msgs {
+		addr := parse_address(msg) or_return
+
+		strings.write_byte(&cmd_builder, ' ')
+		strings.write_string(&cmd_builder, addr)
+	}
+	strings.write_string(&cmd_builder, " --functions --exe=")
+	strings.write_string(&cmd_builder, program.? or_else os.args[0])
+	strings.write_byte(&cmd_builder, 0)
+	cmd_ := strings.to_string(cmd_builder)
+	cmd := cstring(raw_data(cmd_))
+
+	fp := popen(cmd, "r")
+	if fp == nil {
+		err = Message_Error(libc.errno()^)
+		return
+	}
+	defer pclose(fp)
+
+	// Parse output, each address gets 2 lines of output,
+	// one for the function/symbol and one for the location.
+	// If it could not be resolved, '??' is put out.
+	line_buf: [1024]byte
+	for msg, i in msgs {
+		out[i] = Message {
+			symbol   = get_line(line_buf[:], fp, "??") or_return,
+			location = get_line(line_buf[:], fp, msg) or_return,
+		}
 	}
 
 	return
