@@ -49,12 +49,12 @@ Message_Error :: enum {
 	Addr2line_Output_Error,
 	Addr2line_Unresolved,
 
-	Fork_Limited = EAGAIN,
-	Out_Of_Memory = ENOMEM,
-	Invalid_Fd = EFAULT,
-	Pipe_Process_Limited = EMFILE,
-	Pipe_System_Limited = ENFILE,
-	Fork_Not_Supported = ENOSYS,
+	Fork_Limited = int(EAGAIN),
+	Out_Of_Memory = int(ENOMEM),
+	Invalid_Fd = int(EFAULT),
+	Pipe_Process_Limited = int(EMFILE),
+	Pipe_System_Limited = int(ENFILE),
+	Fork_Not_Supported = int(ENOSYS),
 
 	Info_Not_Found,
 }

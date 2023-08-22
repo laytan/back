@@ -30,7 +30,6 @@ foreign libc_ {
 _Backtrace :: []rawptr
 
 _backtrace_get :: proc(max_len: i32, allocator := context.allocator) -> Backtrace {
-	return _backtrace_get(max_len, allocator)
 	trace := make(Backtrace, max_len, allocator)
 	size := backtrace(raw_data(trace), max_len)
 	return trace[:size]
