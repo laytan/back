@@ -2,11 +2,17 @@
 
 An abstraction around the libc backtrace API for Odin providing manual backtraces and a tracking allocator that keeps backtraces.
 
+For Windows support, all credit goes to [DaseinPhaos/pdb](https://github.com/DaseinPhaos/pdb).
+
 In debug mode, the `backtrace_message` and `backtrace_messages` will try to use the debug information to get source files and line numbers.
 When not in debug mode, you will get the memory addresses of the stack locations.
 
-This is confirmed to work on Linux and should work on MacOS,
+This is confirmed to work on Windows and Linux and should work on MacOS,
 although when I tested it on ARM, only 1 stack frame was ever returned, this probably needs some flags.
+
+## Installation
+
+`git clone https://github.com/laytan/obacktracing --recurse-submodules`
 
 ## Manual
 
