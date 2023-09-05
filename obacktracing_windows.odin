@@ -10,7 +10,9 @@ import "vendor/pdb/pdb"
 _Backtrace :: []pdb.StackFrame
 
 _backtrace_get :: proc(max_len: i32, allocator := context.allocator) -> Backtrace {
-	buf := make(Backtrace, max_len)
+	buf := make(Backtrace, max_len, allocator)
+
+	context.allocator = context.temp_allocator
 	size := pdb.capture_stack_trace(buf)
 	return buf[:size]
 }
@@ -34,15 +36,18 @@ _backtrace_messages :: proc(
 	pdb.init_rb(&rb, len(bt))
 	defer delete(rb.data)
 
-	if !pdb.parse_stack_trace(bt, true, &rb) {
-		err = .Info_Not_Found
-		return
+	{
+		context.allocator = context.temp_allocator
+		if pdb.parse_stack_trace(bt, true, &rb) {
+			err = .Info_Not_Found
+			return
+		}
 	}
 
 	out = make([]Message, len(bt))
 	for &msg, i in out {
 		loc := pdb.get_rb(&rb, i)
-		msg.symbol = loc.procedure
+		msg.symbol = strings.clone(loc.procedure)
 
 		lb := strings.builder_make_len_cap(0, len(loc.file_path) + 5)
 		strings.write_string(&lb, loc.file_path)

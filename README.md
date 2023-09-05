@@ -4,6 +4,8 @@ An abstraction around the libc backtrace API for Odin providing manual backtrace
 
 For Windows support, all credit goes to [DaseinPhaos/pdb](https://github.com/DaseinPhaos/pdb).
 
+NOTE: The pdb package allocates a lot of stuff and does not really provide a way of deleting the allocations, so, before calling into the package, this package sets it to use the `context.temporary_allocator`.
+
 In debug mode, the `backtrace_message` and `backtrace_messages` will try to use the debug information to get source files and line numbers.
 When not in debug mode, you will get the memory addresses of the stack locations.
 

@@ -32,7 +32,9 @@ message_delete :: proc(m: Message) {
 	delete(m.location)
 
 	// There is no symbol info outside of debug mode.
-	when ODIN_DEBUG do delete(m.symbol)
+	when ODIN_DEBUG || ODIN_OS == .Windows {
+		delete(m.symbol)
+	}
 }
 
 EAGAIN :: os.EAGAIN when ODIN_OS != .Windows else 5
