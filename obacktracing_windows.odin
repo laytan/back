@@ -1,7 +1,6 @@
 //+private
 package obacktracing
 
-import "core:mem"
 import "core:runtime"
 import "core:strings"
 
@@ -21,15 +20,7 @@ _backtrace_delete :: proc(bt: Backtrace) {
 	delete(bt)
 }
 
-_backtrace_messages :: proc(
-	bt: Backtrace,
-	_: Maybe(string),
-	_: string,
-	allocator := context.allocator,
-) -> (
-	out: []Message,
-	err: Message_Error,
-) {
+_backtrace_messages :: proc(bt: Backtrace, allocator := context.allocator) -> (out: []Message, err: Message_Error) {
 	context.allocator = allocator
 
 	rb: pdb.RingBuffer(runtime.Source_Code_Location)

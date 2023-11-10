@@ -1,12 +1,12 @@
 package obacktracing
 
-import "core:c"
-import "core:c/libc"
 import "core:fmt"
+import "core:io"
 import "core:os"
 import "core:runtime"
-import "core:slice"
-import "core:strings"
+import "core:text/table"
+
+_ :: os
 
 backtrace_get :: proc(max_len: i32, allocator := context.allocator) -> Backtrace {
 	return _backtrace_get(max_len, allocator)
@@ -31,9 +31,14 @@ messages_delete :: proc(msgs: []Message) {
 message_delete :: proc(m: Message) {
 	delete(m.location)
 
-	// There is no symbol info outside of debug mode.
-	when ODIN_DEBUG || ODIN_OS == .Windows {
+	when ODIN_OS == .Windows {
 		delete(m.symbol)
+		return
+	}
+
+	// There is no symbol info outside of debug mode.
+	when ODIN_DEBUG {
+		if m.symbol != "" && m.symbol != "??" do delete(m.symbol)
 	}
 }
 
@@ -51,12 +56,12 @@ Message_Error :: enum {
 	Addr2line_Output_Error,
 	Addr2line_Unresolved,
 
-	Fork_Limited = int(EAGAIN),
-	Out_Of_Memory = int(ENOMEM),
-	Invalid_Fd = int(EFAULT),
+	Fork_Limited         = int(EAGAIN),
+	Out_Of_Memory        = int(ENOMEM),
+	Invalid_Fd           = int(EFAULT),
 	Pipe_Process_Limited = int(EMFILE),
-	Pipe_System_Limited = int(ENFILE),
-	Fork_Not_Supported = int(ENOSYS),
+	Pipe_System_Limited  = int(ENFILE),
+	Fork_Not_Supported   = int(ENOSYS),
 
 	Info_Not_Found,
 }
@@ -64,20 +69,9 @@ Message_Error :: enum {
 // Processes the message trying to get more/useful information.
 // This adds file and line information if the program is running in debug mode.
 //
-// The `program` arg should be the file path of the executable.
-// You can leave this nil and it will default to os.args[0].
-//
 // If an error is returned the original message will be the result and is save to use.
-backtrace_messages :: proc(
-	bt: Backtrace,
-	program: Maybe(string) = nil,
-	addr2line_path: string = "addr2line",
-	allocator := context.allocator,
-) -> (
-	out: []Message,
-	err: Message_Error,
-) {
-	return _backtrace_messages(bt, program, addr2line_path, allocator)
+backtrace_messages :: proc(bt: Backtrace, allocator := context.allocator) -> (out: []Message, err: Message_Error) {
+	return _backtrace_messages(bt, allocator)
 }
 
 assertion_failure_proc :: proc(prefix, message: string, loc: runtime.Source_Code_Location) -> ! {
@@ -88,10 +82,27 @@ assertion_failure_proc :: proc(prefix, message: string, loc: runtime.Source_Code
         runtime.default_assertion_failure_proc(prefix, message, loc)
     } else {
         fmt.println("[back trace]")
-		for msg in msgs[min(1, len(msgs)-1):] {
-			fmt.printf("    %s - %s\n", msg.symbol, msg.location)
-		}
+		format(msgs)
 
         runtime.default_assertion_failure_proc(prefix, message, loc)
     }
+}
+
+format :: proc(msgs: []Message, padding := "    ", w: Maybe(io.Writer) = nil) {
+	w := w.? or_else table.stdio_writer()
+
+	tbl := table.init(&table.Table{})
+
+	for msg in msgs {
+		table.row(tbl, padding, msg.symbol, " - ", msg.location)
+	}
+
+	table.build(tbl)
+
+	for row in 0..<tbl.nr_rows {
+		for col in 0..<tbl.nr_cols {
+			table.write_table_cell(w, tbl, row, col)
+		}
+		io.write_byte(w, '\n')
+	}
 }

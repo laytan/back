@@ -13,7 +13,5 @@ main :: proc() {
 	defer bt.messages_delete(messages)
 
 	fmt.println("[back trace]")
-	for message in messages {
-		fmt.printf("    %s - %s\n", message.symbol, message.location)
-	}
+	bt.format(messages)
 }

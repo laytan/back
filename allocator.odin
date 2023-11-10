@@ -195,9 +195,7 @@ tracking_allocator_print_results :: proc(t: ^Tracking_Allocator) {
 		msgs, err := backtrace_messages(leak.backtrace)
 		fmt.assertf(err == nil, "backtrace error: %v", err)
 		defer messages_delete(msgs)
-		for msg in msgs[min(2, len(msgs) - 1):] {
-			fmt.printf("    %s - %s\n", msg.symbol, msg.location)
-		}
+		format(msgs)
 		fmt.println()
 	}
 
@@ -213,10 +211,7 @@ tracking_allocator_print_results :: proc(t: ^Tracking_Allocator) {
 		msgs, err := backtrace_messages(bad_free.backtrace)
 		fmt.assertf(err == nil, "backtrace error: %v", err)
 		defer messages_delete(msgs)
-		for msg in msgs[min(2, len(msgs) - 1):] {
-			fmt.printf("    %s - %s\n", msg.symbol, msg.location)
-		}
-
+		format(msgs)
 		if i + 1 < len(t.bad_free_array) do fmt.println()
 	}
 }
