@@ -23,6 +23,11 @@ _backtrace_delete :: proc(bt: Backtrace) {
 _backtrace_messages :: proc(bt: Backtrace, allocator := context.allocator) -> (out: []Message, err: Message_Error) {
 	context.allocator = allocator
 
+	// Debug info is needed, if we call pdb parser with out-of-date debug symbols it might panic to, so better to short-circuit right away.
+	when !ODIN_DEBUG {
+		return nil, .Info_Not_Found
+	}
+
 	rb: pdb.RingBuffer(runtime.Source_Code_Location)
 	pdb.init_rb(&rb, len(bt))
 	defer delete(rb.data)

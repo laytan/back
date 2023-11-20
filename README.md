@@ -35,11 +35,14 @@ main :: proc() {
 	defer bt.backtrace_delete(trace)
 
 	messages, err := bt.backtrace_messages(trace)
-	fmt.assertf(err == nil, "err: %v", err)
-	defer bt.messages_delete(messages)
+	if err != nil {
+		fmt.eprintf("Could not retrieve backtrace: %v\n", err)
+	} else {
+		defer bt.messages_delete(messages)
 
-	fmt.println("[back trace]")
-	bt.format(messages)
+		fmt.println("[back trace]")
+		bt.format(messages)
+	}
 }
 
 // $ odin run examples/manual -debug # Output on MacOS
@@ -131,7 +134,7 @@ main :: proc() {
 ```odin
 package main
 
-import bt "../.."
+import bt "obacktracing"
 
 main :: proc() {
 	bt.register_segfault_handler()
