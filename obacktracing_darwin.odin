@@ -100,19 +100,26 @@ read_message :: proc(buf: []byte, fp: ^libc.FILE) -> (msg: Message, err: Message
 
 // Loads the offset at which the addresses returned from `backtrace` are.
 // The `atos` command needs this information.
-load_addr :: proc() -> (addr: uintptr, ok: bool) {
+load_addr :: proc() -> (uintptr, bool) {
+	@static _addr: uintptr
+	if _addr != 0 {
+		return _addr, true
+	}
+
 	cmd := getsegbyname("__TEXT")
-	if cmd == nil do return
+	if cmd == nil do return 0, false
 	
 	for i in 0..<_dyld_image_count() {
 		name := _dyld_get_image_name(i)
 		if name == nil             do continue
 		if string(name) != PROGRAM do continue
 
-		return uintptr(cmd.vmaddr) + _dyld_get_image_vmaddr_slide(i), true
+		ok: bool
+		_addr, ok = uintptr(cmd.vmaddr) + _dyld_get_image_vmaddr_slide(i), true
+		return _addr, ok
 	}
-
-	return
+	
+	return 0, false
 }
 
 // Returns the hex address out of the msg, always seems to be the 3rd field.

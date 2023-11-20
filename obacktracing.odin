@@ -1,5 +1,6 @@
 package obacktracing
 
+import "core:c/libc"
 import "core:fmt"
 import "core:io"
 import "core:os"
@@ -7,6 +8,8 @@ import "core:runtime"
 import "core:text/table"
 
 _ :: os
+
+BACKTRACE_SIZE :: #config(BACKTRACE_SIZE, 16)
 
 backtrace_get :: proc(max_len: i32, allocator := context.allocator) -> Backtrace {
 	return _backtrace_get(max_len, allocator)
@@ -75,7 +78,7 @@ backtrace_messages :: proc(bt: Backtrace, allocator := context.allocator) -> (ou
 }
 
 assertion_failure_proc :: proc(prefix, message: string, loc: runtime.Source_Code_Location) -> ! {
-    t := backtrace_get(17)
+    t := backtrace_get(BACKTRACE_SIZE)
     msgs, err := backtrace_messages(t)
     if err != nil {
         fmt.printf("could not get backtrace for assertion failure: %v\n", err)
@@ -88,8 +91,31 @@ assertion_failure_proc :: proc(prefix, message: string, loc: runtime.Source_Code
     }
 }
 
+register_segfault_handler :: proc() {
+	libc.signal(libc.SIGSEGV, proc "c" (code: i32) {
+		context = runtime.default_context()
+
+		backtrace: {
+			trace := backtrace_get(BACKTRACE_SIZE)
+			defer backtrace_delete(trace)
+
+			messages, err := backtrace_messages(trace)
+			if err != nil {
+				fmt.eprintf("Segmentation Fault\nCould not get backtrace: %v\n", err)
+				break backtrace
+			}
+			defer messages_delete(messages)
+
+			fmt.eprintln("Segmentation Fault\n[back trace]")
+			format(messages)
+		}
+
+		os.exit(int(code))
+	})
+}
+
 format :: proc(msgs: []Message, padding := "    ", w: Maybe(io.Writer) = nil) {
-	w := w.? or_else table.stdio_writer()
+	w := w.? or_else os.stream_from_handle(os.stderr)
 
 	tbl := table.init(&table.Table{})
 

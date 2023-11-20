@@ -13,6 +13,10 @@ NOTE: The pdb package allocates a lot of stuff and does not really provide a way
 In debug mode, the `backtrace_message` and `backtrace_messages` will try to use the debug information to get source files and line numbers.
 When not in debug mode, you will (at best) get the memory addresses of the stack locations.
 
+## Changing backtrace size
+
+To change the size (amount of stackframes to print) you can use the `-define:BACKTRACE_SIZE=16`.
+
 ## Installation
 
 `git clone`
@@ -62,7 +66,6 @@ _main :: proc() {
 main :: proc() {
 	track: bt.Tracking_Allocator
 	bt.tracking_allocator_init(&track, 16, context.allocator)
-	bt.tracking_allocator_destroy(&track)
 	defer bt.tracking_allocator_destroy(&track)
 	context.allocator = bt.tracking_allocator(&track)
 
@@ -121,4 +124,30 @@ main :: proc() {
 //     main                                - /Users/laytan/Odin/core/runtime/entry_unix.odin:52
 //     ??                                  - 7   dyld                                0x0000000187595058 start + 2224
 // /Users/laytan/projects/obacktracing/examples/assert_backtrace/main.odin(7:5) runtime assertion
+```
+
+## Printing a backtrace on segmentation faults
+
+```odin
+package main
+
+import bt "../.."
+
+main :: proc() {
+	bt.register_segfault_handler()
+
+	ptr: ^int
+	bad := ptr^ + 2
+}
+
+// $ odin run examples/segfault -debug # Output on MacOS
+// Segmentation Fault
+// [back trace]
+//     obacktracing._backtrace_get-654               - /Users/laytan/projects/obacktracing/obacktracing_unix.odin:45
+//     obacktracing.backtrace_get                    - /Users/laytan/projects/obacktracing/obacktracing.odin:15
+//     obacktracing.register_segfault_handler$anon-1 - /Users/laytan/projects/obacktracing/obacktracing.odin:99
+//     ??                                            - 3   libsystem_platform.dylib            0x000000018793da24 _sigtramp + 56
+//     main.main                                     - /Users/laytan/projects/obacktracing/examples/segfault/main.odin:8
+//     main                                          - /Users/laytan/Odin/core/runtime/entry_unix.odin:52
+//     ??                                            - 6   dyld                                0x0000000187595058 start + 2224
 ```
