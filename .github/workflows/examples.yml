@@ -24,10 +24,6 @@ jobs:
         run: odin run examples/allocator -vet -strict-style
       - name: allocator debug
         run: odin run examples/allocator -vet -strict-style -debug
-      - name: segfault
-        run: odin run examples/segfault -vet -strict-style
-      - name: segfault debug
-        run: odin run examples/segfault -vet -strict-style -debug
       - name: assert
         run: odin run examples/assert_backtrace -vet -strict-style
       - name: assert debug

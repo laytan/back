@@ -7,4 +7,5 @@ main :: proc() {
 
 	ptr: ^int
 	bad := ptr^ + 2
+	_ = bad
 }
