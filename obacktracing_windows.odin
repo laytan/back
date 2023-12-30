@@ -1,7 +1,6 @@
 //+private
 package obacktracing
 
-import "core:mem"
 import "core:runtime"
 import "core:strings"
 
@@ -17,20 +16,26 @@ _backtrace_get :: proc(max_len: i32, allocator := context.allocator) -> Backtrac
 	return buf[:size]
 }
 
-_backtrace_delete :: proc(bt: Backtrace) {
-	delete(bt)
+_backtrace_delete :: proc(bt: Backtrace, allocator := context.allocator) {
+	delete(bt, allocator)
 }
 
-_backtrace_messages :: proc(
-	bt: Backtrace,
-	_: Maybe(string),
-	_: string,
-	allocator := context.allocator,
-) -> (
-	out: []Message,
-	err: Message_Error,
-) {
+_messages_delete :: proc(msgs: []Message, allocator := context.allocator) {
 	context.allocator = allocator
+	for msg in msgs {
+		delete(msg.location)
+		delete(msg.symbol)
+	}
+	delete(msgs)
+}
+
+_backtrace_messages :: proc(bt: Backtrace, allocator := context.allocator) -> (out: []Message, err: Message_Error) {
+	context.allocator = allocator
+
+	// Debug info is needed, if we call pdb parser with out-of-date debug symbols it might panic to, so better to short-circuit right away.
+	when !ODIN_DEBUG {
+		return nil, .Info_Not_Found
+	}
 
 	rb: pdb.RingBuffer(runtime.Source_Code_Location)
 	pdb.init_rb(&rb, len(bt))

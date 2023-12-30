@@ -9,8 +9,7 @@ _main :: proc() {
 
 main :: proc() {
 	track: bt.Tracking_Allocator
-	bt.tracking_allocator_init(&track, 16, context.allocator)
-	bt.tracking_allocator_destroy(&track)
+	bt.tracking_allocator_init(&track, context.allocator)
 	defer bt.tracking_allocator_destroy(&track)
 	context.allocator = bt.tracking_allocator(&track)
 

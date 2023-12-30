@@ -1,20 +1,25 @@
 # Obacktracing
 
-An abstraction around the libc backtrace API for Odin providing manual backtraces and a tracking allocator that keeps backtraces.
+Backtrace support for the Odin programming language.
 
-For Windows support, all credit goes to [DaseinPhaos/pdb](https://github.com/DaseinPhaos/pdb).
+For best results, compile with the `-debug` flag.
+
+- Windows: parses pdb with the help of [DaseinPhaos/pdb](https://github.com/DaseinPhaos/pdb)
+- Linux: uses the libc backtrace API in combination with the `addr2line` command
+- MacOS: uses the libc backtrace API in combination with the `atos` command
 
 NOTE: The pdb package allocates a lot of stuff and does not really provide a way of deleting the allocations, so, before calling into the package, this package sets it to use the `context.temporary_allocator`.
 
 In debug mode, the `backtrace_message` and `backtrace_messages` will try to use the debug information to get source files and line numbers.
-When not in debug mode, you will get the memory addresses of the stack locations.
+When not in debug mode, you will (at best) get the memory addresses of the stack locations.
 
-This is confirmed to work on Windows and Linux and should work on MacOS,
-although when I tested it on ARM, only 1 stack frame was ever returned, this probably needs some flags.
+## Changing backtrace size
+
+To change the size (amount of stackframes to print) you can use the `-define:BACKTRACE_SIZE=16`.
 
 ## Installation
 
-`git clone https://github.com/laytan/obacktracing --recurse-submodules`
+`git clone`
 
 ## Manual
 
@@ -30,23 +35,23 @@ main :: proc() {
 	defer bt.backtrace_delete(trace)
 
 	messages, err := bt.backtrace_messages(trace)
-	fmt.assertf(err == nil, "err: %v", err)
-	defer bt.messages_delete(messages)
+	if err != nil {
+		fmt.eprintf("Could not retrieve backtrace: %v\n", err)
+	} else {
+		defer bt.messages_delete(messages)
 
-	fmt.println("[back trace]")
-	for message in messages {
-		fmt.printf("    %s - %s\n", message.symbol, message.location)
+		fmt.println("[back trace]")
+		bt.format(messages)
 	}
 }
 
-// $ odin run examples/manual -debug
+// $ odin run examples/manual -debug # Output on MacOS
 // [back trace]
-//     obacktracing.backtrace_get - /home/laytan/projects/obacktracing/obacktracing.odin:39
-//     manual.main - /home/laytan/projects/obacktracing/examples/manual/main.odin:8
-//     main - /home/laytan/third-party/Odin/core/runtime/entry_unix.odin:30
-//     ?? - /lib/x86_64-linux-gnu/libc.so.6(+0x29d90) [0x7f42bc029d90]
-//     ?? - /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x80) [0x7f42bc029e40]
-//     _start - /home/laytan/projects/obacktracing/manual() [0x401135]
+//     obacktracing._backtrace_get-965 - /Users/laytan/projects/obacktracing/obacktracing_unix.odin:45
+//     obacktracing.backtrace_get      - /Users/laytan/projects/obacktracing/obacktracing.odin:12
+//     manual.main                     - /Users/laytan/projects/obacktracing/examples/manual/main.odin:8
+//     main                            - /Users/laytan/Odin/core/runtime/entry_unix.odin:52
+//     ??                              - 4   dyld                                0x0000000187595058 start + 2224
 ```
 
 ## Tracking Allocator
@@ -64,7 +69,6 @@ _main :: proc() {
 main :: proc() {
 	track: bt.Tracking_Allocator
 	bt.tracking_allocator_init(&track, 16, context.allocator)
-	bt.tracking_allocator_destroy(&track)
 	defer bt.tracking_allocator_destroy(&track)
 	context.allocator = bt.tracking_allocator(&track)
 
@@ -73,29 +77,31 @@ main :: proc() {
 	bt.tracking_allocator_print_results(&track)
 }
 
-// $ odin run examples/allocator -debug
-// /home/laytan/projects/obacktracing/examples/allocator/main.odin(8:7) leaked 8 bytes
+// $ odin run examples/allocator -debug # Output on MacOS
+// /Users/laytan/projects/obacktracing/examples/allocator/main.odin(6:6) leaked 8 bytes
 // [back trace]
-//     runtime.mem_alloc_bytes - /home/laytan/third-party/Odin/core/runtime/internal.odin:138
-//     runtime.new_aligned-13495 - /home/laytan/third-party/Odin/core/runtime/core_builtin.odin:248
-//     runtime.new-13401 - /home/laytan/third-party/Odin/core/runtime/core_builtin.odin:244
-//     main._main - /home/laytan/projects/obacktracing/examples/allocator/main.odin:8
-//     main.main - /home/laytan/projects/obacktracing/examples/allocator/main.odin:21
-//     main - /home/laytan/third-party/Odin/core/runtime/entry_unix.odin:30
-//     ?? - /lib/x86_64-linux-gnu/libc.so.6(+0x29d90) [0x7ff775229d90]
-//     ?? - /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x80) [0x7ff775229e40]
-//     _start - /home/laytan/projects/obacktracing/allocator() [0x401135]
+//     obacktracing._backtrace_get-1124     - /Users/laytan/projects/obacktracing/obacktracing_unix.odin:45
+//     obacktracing.backtrace_get           - /Users/laytan/projects/obacktracing/obacktracing.odin:12
+//     obacktracing.tracking_allocator_proc - /Users/laytan/projects/obacktracing/allocator.odin:138
+//     runtime.mem_alloc_bytes              - /Users/laytan/Odin/core/runtime/internal.odin:141
+//     runtime.new_aligned-13802            - /Users/laytan/Odin/core/runtime/core_builtin.odin:248
+//     runtime.new-13779                    - /Users/laytan/Odin/core/runtime/core_builtin.odin:244
+//     main._main                           - /Users/laytan/projects/obacktracing/examples/allocator/main.odin:6
+//     main.main                            - /Users/laytan/projects/obacktracing/examples/allocator/main.odin:17
+//     main                                 - /Users/laytan/Odin/core/runtime/entry_unix.odin:52
+//     ??                                   - 9   dyld                                0x0000000187595058 start + 2224
 //
 //
-// /home/laytan/projects/obacktracing/examples/allocator/main.odin(9:2) allocation 64 was freed badly
+// /Users/laytan/projects/obacktracing/examples/allocator/main.odin(7:2) allocation 64 was freed badly
 // [back trace]
-//     runtime.mem_free - /home/laytan/third-party/Odin/core/runtime/internal.odin:159
-//     main._main - /home/laytan/projects/obacktracing/examples/allocator/main.odin:10
-//     main.main - /home/laytan/projects/obacktracing/examples/allocator/main.odin:21
-//     main - /home/laytan/third-party/Odin/core/runtime/entry_unix.odin:30
-//     ?? - /lib/x86_64-linux-gnu/libc.so.6(+0x29d90) [0x7ff775229d90]
-//     ?? - /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x80) [0x7ff775229e40]
-//     _start - /home/laytan/projects/obacktracing/allocator() [0x401135]
+//     obacktracing._backtrace_get-1124     - /Users/laytan/projects/obacktracing/obacktracing_unix.odin:45
+//     obacktracing.backtrace_get           - /Users/laytan/projects/obacktracing/obacktracing.odin:12
+//     obacktracing.tracking_allocator_proc - /Users/laytan/projects/obacktracing/allocator.odin:111
+//     runtime.mem_free                     - /Users/laytan/Odin/core/runtime/internal.odin:162
+//     main._main                           - /Users/laytan/projects/obacktracing/examples/allocator/main.odin:8
+//     main.main                            - /Users/laytan/projects/obacktracing/examples/allocator/main.odin:17
+//     main                                 - /Users/laytan/Odin/core/runtime/entry_unix.odin:52
+//     ??                                   - 7   dyld                                0x0000000187595058 start + 2224
 ```
 
 ## Printing a backtrace on assertion failures / panics
@@ -110,16 +116,41 @@ main :: proc() {
     assert(3 == 2)
 }
 
-// $ odin run examples/assert_backtrace -debug
+// $ odin run examples/assert_backtrace -debug # Output on MacOS
 // [back trace]
-//     obacktracing.assertion_failure_proc - /home/laytan/projects/obacktracing/obacktracing.odin:182
-//     runtime.assert.internal-0 - /home/laytan/third-party/Odin/core/runtime/core_builtin.odin:812
-//     runtime.assert - /home/laytan/third-party/Odin/core/runtime/core_builtin.odin:816
-//     main.main - /home/laytan/projects/obacktracing/examples/assert_backtrace/main.odin:10
-//     main - /home/laytan/third-party/Odin/core/runtime/entry_unix.odin:30
-//     ?? - /lib/x86_64-linux-gnu/libc.so.6(+0x29d90) [0x7f22e9429d90]
-//     ?? - /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x80) [0x7f22e9429e40]
-//     _start - /home/laytan/projects/obacktracing/assert_backtrace() [0x401135]
-// /home/laytan/projects/obacktracing/examples/assert_backtrace/main.odin(9:5) runtime assertion
-// Illegal instruction (core dumped)
+//     obacktracing._backtrace_get-1414    - /Users/laytan/projects/obacktracing/obacktracing_unix.odin:45
+//     obacktracing.backtrace_get          - /Users/laytan/projects/obacktracing/obacktracing.odin:12
+//     obacktracing.assertion_failure_proc - /Users/laytan/projects/obacktracing/obacktracing.odin:78
+//     runtime.assert.internal-0           - /Users/laytan/Odin/core/runtime/core_builtin.odin:813
+//     runtime.assert                      - /Users/laytan/Odin/core/runtime/core_builtin.odin:815
+//     main.main                           - /Users/laytan/projects/obacktracing/examples/assert_backtrace/main.odin:8
+//     main                                - /Users/laytan/Odin/core/runtime/entry_unix.odin:52
+//     ??                                  - 7   dyld                                0x0000000187595058 start + 2224
+// /Users/laytan/projects/obacktracing/examples/assert_backtrace/main.odin(7:5) runtime assertion
+```
+
+## Printing a backtrace on segmentation faults
+
+```odin
+package main
+
+import bt "obacktracing"
+
+main :: proc() {
+	bt.register_segfault_handler()
+
+	ptr: ^int
+	bad := ptr^ + 2
+}
+
+// $ odin run examples/segfault -debug # Output on MacOS
+// Segmentation Fault
+// [back trace]
+//     obacktracing._backtrace_get-654               - /Users/laytan/projects/obacktracing/obacktracing_unix.odin:45
+//     obacktracing.backtrace_get                    - /Users/laytan/projects/obacktracing/obacktracing.odin:15
+//     obacktracing.register_segfault_handler$anon-1 - /Users/laytan/projects/obacktracing/obacktracing.odin:99
+//     ??                                            - 3   libsystem_platform.dylib            0x000000018793da24 _sigtramp + 56
+//     main.main                                     - /Users/laytan/projects/obacktracing/examples/segfault/main.odin:8
+//     main                                          - /Users/laytan/Odin/core/runtime/entry_unix.odin:52
+//     ??                                            - 6   dyld                                0x0000000187595058 start + 2224
 ```
