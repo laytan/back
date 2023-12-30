@@ -2,19 +2,31 @@ package manual
 
 import "core:fmt"
 
-import bt "../.."
+import back "../.."
 
 main :: proc() {
-	trace := bt.backtrace_get(16)
-	defer bt.backtrace_delete(trace)
+	// Allocates for 16 frames.
+	bt := back.trace_n(16)
+	print(bt)
 
-	messages, err := bt.backtrace_messages(trace)
+	// Or, doesn't allocate, returns `-define:BACKTRACE_SIZE` frames.
+	btc := back.trace()
+	print(btc.trace[:btc.len])
+
+	// Or, fill in a slice.
+	bt = make(back.Trace, 16)
+	bt = bt[:back.trace_fill(bt)]
+	print(bt)
+}
+
+print :: proc(bt: back.Trace) {
+	lines, err := back.lines(bt)
 	if err != nil {
-		fmt.eprintf("Could not retrieve backtrace: %v\n", err)
+		fmt.eprintf("Could not retrieve backtrace lines: %v\n", err)
 	} else {
-		defer bt.messages_delete(messages)
+		defer back.lines_destroy(lines)
 
-		fmt.println("[back trace]")
-		bt.format(messages)
+		fmt.eprintln("[back trace]")
+		back.print(lines)
 	}
 }

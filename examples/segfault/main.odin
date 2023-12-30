@@ -1,9 +1,9 @@
 package main
 
-import bt "../.."
+import back "../.."
 
 main :: proc() {
-	bt.register_segfault_handler()
+	back.register_segfault_handler()
 
 	ptr: ^int
 	bad := ptr^ + 2

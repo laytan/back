@@ -1,27 +1,18 @@
 //+private
-package obacktracing
+package back
 
 import "core:runtime"
 import "core:strings"
 
 import "vendor/pdb/pdb"
 
-_Backtrace :: []pdb.StackFrame
+_Trace_Entry :: pdb.StackFrame
 
-_backtrace_get :: proc(max_len: i32, allocator := context.allocator) -> Backtrace {
-	buf := make(Backtrace, max_len, allocator)
-
-	context.allocator = context.temp_allocator
-	size := pdb.capture_stack_trace(buf)
-	return buf[:size]
+_trace :: proc(buf: Trace) -> (n: int) {
+	return int(pdb.capture_stack_trace(buf))
 }
 
-_backtrace_delete :: proc(bt: Backtrace, allocator := context.allocator) {
-	delete(bt, allocator)
-}
-
-_messages_delete :: proc(msgs: []Message, allocator := context.allocator) {
-	context.allocator = allocator
+_lines_destroy :: proc(msgs: []Line) {
 	for msg in msgs {
 		delete(msg.location)
 		delete(msg.symbol)
@@ -29,13 +20,13 @@ _messages_delete :: proc(msgs: []Message, allocator := context.allocator) {
 	delete(msgs)
 }
 
-_backtrace_messages :: proc(bt: Backtrace, allocator := context.allocator) -> (out: []Message, err: Message_Error) {
-	context.allocator = allocator
-
+_lines :: proc(bt: Trace) -> (out: []Line, err: Lines_Error) {
 	// Debug info is needed, if we call pdb parser with out-of-date debug symbols it might panic to, so better to short-circuit right away.
 	when !ODIN_DEBUG {
 		return nil, .Info_Not_Found
 	}
+
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD(ignore=context.allocator==context.temp_allocator)
 
 	rb: pdb.RingBuffer(runtime.Source_Code_Location)
 	pdb.init_rb(&rb, len(bt))
@@ -49,7 +40,7 @@ _backtrace_messages :: proc(bt: Backtrace, allocator := context.allocator) -> (o
 		}
 	}
 
-	out = make([]Message, len(bt))
+	out = make([]Line, len(bt))
 	for &msg, i in out {
 		loc := pdb.get_rb(&rb, i)
 		msg.symbol = strings.clone(loc.procedure)

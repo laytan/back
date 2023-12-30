@@ -1,6 +1,6 @@
 package main
 
-import bt "../.."
+import back "../.."
 
 _main :: proc() {
 	_ = new(int)
@@ -8,12 +8,12 @@ _main :: proc() {
 }
 
 main :: proc() {
-	track: bt.Tracking_Allocator
-	bt.tracking_allocator_init(&track, context.allocator)
-	defer bt.tracking_allocator_destroy(&track)
-	context.allocator = bt.tracking_allocator(&track)
+	track: back.Tracking_Allocator
+	back.tracking_allocator_init(&track, context.allocator)
+	defer back.tracking_allocator_destroy(&track)
+
+	context.allocator = back.tracking_allocator(&track)
+	defer back.tracking_allocator_print_results(&track)
 
 	_main()
-
-	bt.tracking_allocator_print_results(&track)
 }
