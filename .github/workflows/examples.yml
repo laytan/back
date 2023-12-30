@@ -32,7 +32,7 @@ jobs:
         run: |
           odin run examples/segfault -vet -strict-style
           code=$?
-          if [ code -eq 11 ]; then
+          if [ $code -eq 11 ]; then
             exit 0
           else
             echo "Exit code $code"
@@ -44,7 +44,7 @@ jobs:
         run: |
           odin run examples/segfault -vet -strict-style -debug
           code=$?
-          if [ code -eq 11 ]; then
+          if [ $code -eq 11 ]; then
             exit 0
           else
             echo "Exit code $code"
@@ -56,7 +56,7 @@ jobs:
         run: |
           odin run examples/assert_backtrace -vet -strict-style
           code=$?
-          if [ code -eq 11 ]; then
+          if [ $code -eq 5 ]; then
             exit 0
           else
             echo "Exit code $code"
@@ -68,7 +68,7 @@ jobs:
         run: |
           odin run examples/assert_backtrace -vet -strict-style -debug
           code=$?
-          if [ code -eq 11 ]; then
+          if [ $code -eq 5 ]; then
             exit 0
           else
             echo "Exit code $code"
