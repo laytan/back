@@ -191,7 +191,7 @@ Result_Type :: enum {
 
 tracking_allocator_print_results :: proc(t: ^Tracking_Allocator, type: Result_Type = .Both) {
 	context.allocator = t.internals_allocator
-	
+
 	Work :: struct {
 		trace:   Backtrace,
 		result:  []Message,
@@ -218,7 +218,7 @@ tracking_allocator_print_results :: proc(t: ^Tracking_Allocator, type: Result_Ty
 			i += 1
 		}
 	}
-	
+
 	if type == .Both || type == .Bad_Frees {
 		for bad_free in t.bad_free_array {
 			work[i].trace   = bad_free.backtrace
@@ -230,7 +230,7 @@ tracking_allocator_print_results :: proc(t: ^Tracking_Allocator, type: Result_Ty
 
 	extra_threads_done: sync.Wait_Group
 	sync.wait_group_add(&extra_threads_done, extra_threads + 1)
-	
+
 	// Processes the slice of work given.
 	thread_proc :: proc(work: ^[]Work, start: int, end: int, extra_threads_done: ^sync.Wait_Group) {
 		defer sync.wait_group_done(extra_threads_done)
@@ -257,7 +257,7 @@ tracking_allocator_print_results :: proc(t: ^Tracking_Allocator, type: Result_Ty
 		for _, leak in t.allocation_map {
 			defer li+=1
 
-			fmt.eprintf("\x1b[31m%v leaked %v bytes\x1b[0m\n", leak.location, leak.size)
+			fmt.eprintf("\x1b[31m%v leaked %m\x1b[0m\n", leak.location, leak.size)
 			fmt.eprintln("[back trace]")
 
 			work_leak := work_leaks[li]
@@ -273,7 +273,7 @@ tracking_allocator_print_results :: proc(t: ^Tracking_Allocator, type: Result_Ty
 
 		if len(t.bad_free_array) > 0 do fmt.eprintln()
 	}
-	
+
 	if type == .Both || type == .Bad_Frees {
 		for bad_free, fi in t.bad_free_array {
 			fmt.eprintf(
@@ -291,7 +291,7 @@ tracking_allocator_print_results :: proc(t: ^Tracking_Allocator, type: Result_Ty
 			}
 
 			format(work_free.result)
-			
+
 			if fi + 1 < len(t.bad_free_array) do fmt.eprintln()
 		}
 	}

@@ -7,16 +7,14 @@ import "core:os"
 import "core:runtime"
 import "core:text/table"
 
-_ :: os
-
 BACKTRACE_SIZE :: #config(BACKTRACE_SIZE, 16)
 
-backtrace_get :: proc(max_len: i32, allocator := context.allocator) -> Backtrace {
-	return _backtrace_get(max_len, allocator)
+backtrace_get :: #force_no_inline proc(max_len: i32, allocator := context.allocator) -> Backtrace {
+	return #force_inline _backtrace_get(max_len, allocator)
 }
 
-backtrace_delete :: proc(b: Backtrace) {
-	_backtrace_delete(b)
+backtrace_delete :: proc(b: Backtrace, allocator := context.allocator) {
+	_backtrace_delete(b, allocator)
 }
 
 Backtrace :: _Backtrace
@@ -26,23 +24,8 @@ Message :: struct {
 	symbol:   string,
 }
 
-messages_delete :: proc(msgs: []Message) {
-	for msg in msgs do message_delete(msg)
-	delete(msgs)
-}
-
-message_delete :: proc(m: Message) {
-	delete(m.location)
-
-	when ODIN_OS == .Windows {
-		delete(m.symbol)
-		return
-	}
-
-	// There is no symbol info outside of debug mode.
-	when ODIN_DEBUG {
-		if m.symbol != "" && m.symbol != "??" do delete(m.symbol)
-	}
+messages_delete :: proc(msgs: []Message, allocator := context.allocator) {
+	_messages_delete(msgs, allocator)
 }
 
 EAGAIN :: os.EAGAIN when ODIN_OS != .Windows else 5

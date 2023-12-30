@@ -16,8 +16,17 @@ _backtrace_get :: proc(max_len: i32, allocator := context.allocator) -> Backtrac
 	return buf[:size]
 }
 
-_backtrace_delete :: proc(bt: Backtrace) {
-	delete(bt)
+_backtrace_delete :: proc(bt: Backtrace, allocator := context.allocator) {
+	delete(bt, allocator)
+}
+
+_messages_delete :: proc(msgs: []Message, allocator := context.allocator) {
+	context.allocator = allocator
+	for msg in msgs {
+		delete(msg.location)
+		delete(msg.symbol)
+	}
+	delete(msgs)
 }
 
 _backtrace_messages :: proc(bt: Backtrace, allocator := context.allocator) -> (out: []Message, err: Message_Error) {

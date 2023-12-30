@@ -1,0 +1,26 @@
+name: Examples
+on:
+  push:
+  workflow_dispatch:
+
+env:
+  FORCE_COLOR: "1"
+
+jobs:
+  examples:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v1
+      - uses: laytan/setup-odin@v1
+      - name: manual
+        run: odin run examples/manual -vet -strict-style
+      - name: allocator
+        run: odin run examples/allocator -vet -strict-style
+      - name: segfault
+        run: odin run examples/segfault -vet-strict-style
+      - name: assert
+        run: odin run examples/assert_backtrace -vet-strict-style
