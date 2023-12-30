@@ -1,5 +1,5 @@
 //+private file
-package obacktracing
+package back
 
 import "core:c"
 import "core:c/libc"
@@ -9,57 +9,46 @@ import "core:strings"
 
 foreign import lib "system:System.framework"
 
-ATOS_PATH := #config(TRACE_ADDR2LINE_PATH, "atos")
-PROGRAM   := #config(TRACE_PROGRAM, "")
+ATOS_PATH := #config(BACK_ADDR2LINE_PATH, "atos")
+PROGRAM   := #config(BACK_PROGRAM, "")
 
 @(init)
-config_set_defaults :: proc() {
+program_init :: proc() {
 	if PROGRAM == "" do PROGRAM = os.args[0]
 }
 
 @(private="package")
-_Backtrace :: []rawptr
+_Trace_Entry :: rawptr
 
 @(private="package")
-_backtrace_get :: proc(max_len: i32, allocator := context.allocator) -> Backtrace {
-	ctx: unw_context_t
+_trace :: proc(buf: Trace) -> (n: int) {
+	ctx:    unw_context_t
 	cursor: unw_cursor_t
 
 	assert(unw_getcontext(&ctx) == 0)
 	assert(unw_init_local(&cursor, &ctx) == 0)
 
-	bt := make([]rawptr, max_len, allocator)
-
 	pc: uintptr
-	i: i32
-	for ; unw_step(&cursor) > 0 && i < max_len; i += 1 {
+	for ; unw_step(&cursor) > 0 && n < len(buf); n += 1 {
 		assert(unw_get_reg(&cursor, .IP, &pc) == 0)
-		bt[i] = rawptr(pc)
+		buf[n] = rawptr(pc)
 	}
 
-	return bt[:i]
+	return
 }
 
 @(private="package")
-_backtrace_delete :: proc(bt: Backtrace, allocator := context.allocator) {
-	delete(bt, allocator)
-}
-
-@(private="package")
-_messages_delete :: proc(msgs: []Message, allocator := context.allocator) {
-	context.allocator = allocator
-	for msg in msgs {
-		delete(msg.location)
-		delete(msg.symbol)
+_lines_destroy :: proc(lines: []Line) {
+	for line in lines {
+		delete(line.location)
+		delete(line.symbol)
 	}
-	delete(msgs)
+	delete(lines)
 }
 
 @(private="package")
-_backtrace_messages :: proc(bt: Backtrace, allocator := context.allocator) -> (out: []Message, err: Message_Error) {
-	context.allocator = allocator
-
-	out = make([]Message, len(bt))
+_lines :: proc(bt: Trace) -> (out: []Line, err: Lines_Error) {
+	out = make([]Line, len(bt))
 
 	when ODIN_DEBUG {
 		cmd := make_symbolizer_cmd(bt) or_return
@@ -67,7 +56,7 @@ _backtrace_messages :: proc(bt: Backtrace, allocator := context.allocator) -> (o
 
 		fp := popen(cmd, "r")
 		if fp == nil {
-			err = Message_Error(libc.errno()^)
+			err = Lines_Error(libc.errno()^)
 			return
 		}
 		defer pclose(fp)
@@ -88,7 +77,7 @@ _backtrace_messages :: proc(bt: Backtrace, allocator := context.allocator) -> (o
 
 			msg := &out[i]
 			msg.location = strings.clone_from(info.fname)
-			msg.symbol = strings.clone_from(info.sname)
+			msg.symbol   = strings.clone_from(info.sname)
 		}
 		return
 	}
@@ -152,7 +141,7 @@ foreign lib {
 }
 
 // Constructs the `atos` command to be executed.
-make_symbolizer_cmd :: proc(bt: Backtrace) -> (cmd: cstring, err: Message_Error) {
+make_symbolizer_cmd :: proc(bt: Trace) -> (cmd: cstring, err: Lines_Error) {
 	addr, ok := load_addr()
 	if !ok do return "", .Parse_Address_Fail
 
@@ -178,7 +167,7 @@ make_symbolizer_cmd :: proc(bt: Backtrace) -> (cmd: cstring, err: Message_Error)
 }
 
 // Parses a single message out of the command output.
-read_message :: proc(buf: []byte, fp: ^libc.FILE) -> (msg: Message, err: Message_Error) {
+read_message :: proc(buf: []byte, fp: ^libc.FILE) -> (msg: Line, err: Lines_Error) {
 	got := libc.fgets(raw_data(buf), c.int(len(buf)), fp)
 	if got == nil {
 		if libc.feof(fp) == 0 {

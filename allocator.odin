@@ -1,4 +1,4 @@
-package obacktracing
+package back
 
 import "core:fmt"
 import "core:mem"
@@ -29,13 +29,13 @@ Tracking_Allocator_Entry :: struct {
 	mode:      mem.Allocator_Mode,
 	err:       mem.Allocator_Error,
 	location:  runtime.Source_Code_Location,
-	backtrace: Backtrace,
+	backtrace: Trace_Const,
 }
 
 Tracking_Allocator_Bad_Free_Entry :: struct {
 	memory:    rawptr,
 	location:  runtime.Source_Code_Location,
-	backtrace: Backtrace,
+	backtrace: Trace_Const,
 }
 
 tracking_allocator_init :: proc(
@@ -54,20 +54,14 @@ tracking_allocator_init :: proc(
 }
 
 tracking_allocator_destroy :: proc(t: ^Tracking_Allocator) {
-	for _, leak in t.allocation_map do backtrace_delete(leak.backtrace)
 	delete(t.allocation_map)
-
-	for bad_free in t.bad_free_array do backtrace_delete(bad_free.backtrace)
 	delete(t.bad_free_array)
 }
 
 tracking_allocator_clear :: proc(t: ^Tracking_Allocator) {
 	sync.guard(&t.mutex)
 
-	for _, leak in t.allocation_map do backtrace_delete(leak.backtrace)
 	clear(&t.allocation_map)
-
-	for bad_free in t.bad_free_array do backtrace_delete(bad_free.backtrace)
 	clear(&t.bad_free_array)
 }
 
@@ -110,7 +104,7 @@ tracking_allocator_proc :: proc(
 			Tracking_Allocator_Bad_Free_Entry{
 				memory = old_memory,
 				location = loc,
-				backtrace = backtrace_get(BACKTRACE_SIZE, data.internals_allocator),
+				backtrace = trace(),
 			},
 		)
 	} else {
@@ -139,7 +133,7 @@ tracking_allocator_proc :: proc(
 			alignment = alignment,
 			err       = err,
 			location  = loc,
-			backtrace = backtrace_get(BACKTRACE_SIZE, data.internals_allocator),
+			backtrace = trace(),
 		}
 	case .Free:
 		delete_key(&data.allocation_map, old_memory)
@@ -158,7 +152,7 @@ tracking_allocator_proc :: proc(
 			alignment = alignment,
 			err       = err,
 			location  = loc,
-			backtrace = backtrace_get(BACKTRACE_SIZE, data.internals_allocator),
+			backtrace = trace(),
 		}
 
 	case .Query_Features:
@@ -193,9 +187,9 @@ tracking_allocator_print_results :: proc(t: ^Tracking_Allocator, type: Result_Ty
 	context.allocator = t.internals_allocator
 
 	Work :: struct {
-		trace:   Backtrace,
-		result:  []Message,
-		err:     Message_Error,
+		trace:   Trace_Const,
+		result:  []Line,
+		err:     Lines_Error,
 	}
 
 	trace_count: int
@@ -236,7 +230,7 @@ tracking_allocator_print_results :: proc(t: ^Tracking_Allocator, type: Result_Ty
 		defer sync.wait_group_done(extra_threads_done)
 
 		for &entry in work[start:end] {
-			entry.result, entry.err = backtrace_messages(entry.trace)
+			entry.result, entry.err = lines(entry.trace.trace[:entry.trace.len])
 		}
 	}
 
@@ -261,13 +255,13 @@ tracking_allocator_print_results :: proc(t: ^Tracking_Allocator, type: Result_Ty
 			fmt.eprintln("[back trace]")
 
 			work_leak := work_leaks[li]
-			defer messages_delete(work_leak.result)
+			defer lines_destroy(work_leak.result)
 			if work_leak.err != nil {
 				fmt.eprintf("backtrace error: %v\n", work_leak.err)
 				continue
 			}
 
-			format(work_leak.result)
+			print(work_leak.result)
 			fmt.eprintln()
 		}
 
@@ -284,13 +278,13 @@ tracking_allocator_print_results :: proc(t: ^Tracking_Allocator, type: Result_Ty
 			fmt.eprintln("[back trace]")
 
 			work_free := work[fi]
-			defer messages_delete(work_free.result)
+			defer lines_destroy(work_free.result)
 			if work_free.err != nil {
 				fmt.eprintf("backtrace error: %v\n", work_free.err)
 				continue
 			}
 
-			format(work_free.result)
+			print(work_free.result)
 
 			if fi + 1 < len(t.bad_free_array) do fmt.eprintln()
 		}
