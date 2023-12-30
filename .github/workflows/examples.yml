@@ -18,9 +18,17 @@ jobs:
       - uses: laytan/setup-odin@v1
       - name: manual
         run: odin run examples/manual -vet -strict-style
+      - name: manual debug
+        run: odin run examples/manual -vet -strict-style -debug
       - name: allocator
         run: odin run examples/allocator -vet -strict-style
+      - name: allocator debug
+        run: odin run examples/allocator -vet -strict-style -debug
       - name: segfault
-        run: odin run examples/segfault -vet-strict-style
+        run: odin run examples/segfault -vet -strict-style
+      - name: segfault debug
+        run: odin run examples/segfault -vet -strict-style -debug
       - name: assert
-        run: odin run examples/assert_backtrace -vet-strict-style
+        run: odin run examples/assert_backtrace -vet -strict-style
+      - name: assert debug
+        run: odin run examples/assert_backtrace -vet -strict-style -debug
