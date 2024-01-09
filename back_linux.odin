@@ -3,7 +3,6 @@ package back
 
 import "core:c"
 import "core:c/libc"
-import "core:os"
 import "core:slice"
 import "core:strings"
 
