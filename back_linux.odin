@@ -10,12 +10,6 @@ import "core:strings"
 foreign import lib "system:c"
 
 ADDR2LINE_PATH := #config(TRACE_ADDR2LINE_PATH, "addr2line")
-PROGRAM        := #config(TRACE_PROGRAM, "")
-
-@(init)
-config_set_defaults :: proc() {
-	if PROGRAM == "" do PROGRAM = os.args[0]
-}
 
 @(private="package")
 _Trace_Entry :: rawptr

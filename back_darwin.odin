@@ -4,18 +4,11 @@ package back
 import "core:c"
 import "core:c/libc"
 import "core:fmt"
-import "core:os"
 import "core:strings"
 
 foreign import lib "system:System.framework"
 
 ATOS_PATH := #config(BACK_ADDR2LINE_PATH, "atos")
-PROGRAM   := #config(BACK_PROGRAM, "")
-
-@(init)
-program_init :: proc() {
-	if PROGRAM == "" do PROGRAM = os.args[0]
-}
 
 @(private="package")
 _Trace_Entry :: rawptr
