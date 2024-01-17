@@ -184,6 +184,25 @@ Result_Type :: enum {
 }
 
 tracking_allocator_print_results :: proc(t: ^Tracking_Allocator, type: Result_Type = .Both) {
+	when ODIN_OS == .Windows && !ODIN_DEBUG {
+		if type == .Both || type == .Leaks {
+			for _, leak in t.allocation_map {
+				fmt.eprintf("\x1b[31m%v leaked %m\x1b[0m\n\tCompile with `-debug` to get a back trace\n", leak.location, leak.size)
+			}
+		}
+
+		if type == .Both || type == .Bad_Frees {
+			for bad_free, fi in t.bad_free_array {
+				fmt.eprintf(
+					"\x1b[31m%v allocation %p was freed badly\x1b[0m\n\tCompile with `-debug` to get a back trace\n",
+					bad_free.location,
+					bad_free.memory,
+				)
+			}
+		}
+		return
+	}
+
 	context.allocator = t.internals_allocator
 
 	Work :: struct {
@@ -221,7 +240,6 @@ tracking_allocator_print_results :: proc(t: ^Tracking_Allocator, type: Result_Ty
 	}
 
 	extra_threads := max(0, min(os.processor_core_count() - 1, trace_count - 1))
-
 	extra_threads_done: sync.Wait_Group
 	sync.wait_group_add(&extra_threads_done, extra_threads + 1)
 
