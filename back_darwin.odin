@@ -10,8 +10,6 @@ foreign import system "system:System.framework"
 @(extra_linker_flags="-iframework /System/Library/PrivateFrameworks")
 foreign import symbolication "system:CoreSymbolication.framework"
 
-ATOS_PATH := #config(BACK_ADDR2LINE_PATH, "atos")
-
 @(private="package")
 _Trace_Entry :: rawptr
 

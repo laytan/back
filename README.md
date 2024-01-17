@@ -13,12 +13,11 @@ When not in debug mode, you will get greatly reduced information.
 
 Back does not use any libraries or external dependencies not pre-installed on the OS.
 
-- On MacOS, the `atos` command is invoked, which comes pre-installed (maybe with XCode).
-- On Linux, the `addr2line` command is invoked, which comes pre-installed (maybe in binutils).
+On Linux, the `addr2line` command is invoked, which comes pre-installed (maybe in binutils).
 
-The previously mentioned commands can be changed by setting the `-define:BACK_ADDR2LINE_PATH=your/atos` flag.
+The `addr2line` command can be changed by setting the `-define:BACK_ADDR2LINE_PATH=your/atos` flag.
 
-The path to the running binary is also needed, this is `os.args[0]` by default and to my knowledge is always correct.
+The path to the running binary is also needed for this command, this is `os.args[0]` by default and to my knowledge is always correct.
 Nevertheless it can be changed with the `-define:BACK_PROGRAM=path/to/binary` flag.
 
 To change the size (amount of stackframes to print) in places where this can't be set directly, you can use the `-define:BACKTRACE_SIZE=16`.
