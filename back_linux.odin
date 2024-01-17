@@ -3,12 +3,30 @@ package back
 
 import "core:c"
 import "core:c/libc"
+import "core:fmt"
+import "core:os"
+import "core:path/filepath"
 import "core:slice"
 import "core:strings"
 
 foreign import lib "system:c"
 
 ADDR2LINE_PATH := #config(TRACE_ADDR2LINE_PATH, "addr2line")
+PROGRAM        := #config(BACK_PROGRAM, "")
+
+@(init)
+program_init :: proc() {
+	if PROGRAM == "" {
+		PROGRAM = os.args[0]
+		if !filepath.is_abs(PROGRAM) {
+			if abs, ok := filepath.abs(PROGRAM); ok {
+				PROGRAM = abs
+			} else {
+				fmt.eprintln("back: could not convert `os.args[0]` to an absolute path")
+			}
+		}
+	}
+}
 
 @(private="package")
 _Trace_Entry :: rawptr
@@ -48,9 +66,6 @@ _lines :: proc(bt: Trace) -> (out: []Line, err: Lines_Error) {
 		}
 		return
 	}
-
-	// TODO: check if addr2line is executable.
-	// check_symbolizer()
 
 	cmd := make_symbolizer_cmd(msgs) or_return
 	defer delete(cmd)
