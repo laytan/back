@@ -1,6 +1,5 @@
 package back
 
-import "core:c/libc"
 import "core:fmt"
 import "core:io"
 import "core:os"
@@ -107,23 +106,7 @@ assertion_failure_proc :: proc(prefix, message: string, loc: runtime.Source_Code
 }
 
 register_segfault_handler :: proc() {
-	libc.signal(libc.SIGSEGV, proc "c" (code: i32) {
-		context = runtime.default_context()
-
-		backtrace: {
-			t := trace()
-			lines, err := lines(t.trace[:t.len])
-			if err != nil {
-				fmt.eprintf("Segmentation Fault\nCould not get backtrace: %v\n", err)
-				break backtrace
-			}
-
-			fmt.eprintln("Segmentation Fault\n[back trace]")
-			print(lines)
-		}
-
-		os.exit(int(code))
-	})
+	_register_segfault_handler()
 }
 
 print :: proc(lines: []Line, padding := "    ", w: Maybe(io.Writer) = nil, no_temp_guard := false) {
