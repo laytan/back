@@ -141,7 +141,7 @@ tracking_allocator_proc :: proc(
 		if data.clear_on_free_all {
 			clear_map(&data.allocation_map)
 		}
-	case .Resize:
+	case .Resize, .Resize_Non_Zeroed:
 		if old_memory != result_ptr {
 			delete_key(&data.allocation_map, old_memory)
 		}
