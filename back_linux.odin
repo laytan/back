@@ -6,8 +6,11 @@ import "core:c/libc"
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
+import "core:runtime"
 import "core:slice"
 import "core:strings"
+
+import "elf"
 
 foreign import lib "system:c"
 
@@ -41,10 +44,7 @@ _trace :: proc(buf: Trace) -> (n: int) {
 _lines_destroy :: proc(msgs: []Line) {
 	for msg in msgs {
 		delete(msg.location)
-
-		when ODIN_DEBUG {
-			if msg.symbol != "" && msg.symbol != "??" do delete(msg.symbol)
-		}
+		if msg.symbol != "" && msg.symbol != "??" do delete(msg.symbol)
 	}
 	delete(msgs)
 }
@@ -56,13 +56,89 @@ _lines :: proc(bt: Trace) -> (out: []Line, err: Lines_Error) {
 
 	out = make([]Line, len(bt))
 
-	// Debug info is needed.
+	// TODO: caching.
 	when !ODIN_DEBUG {
+		runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD(ignore=context.allocator==context.temp_allocator)
+
+		fh, errno := os.open(PROGRAM, os.O_RDONLY)
+		assert(errno == os.ERROR_NONE)
+		defer os.close(fh)
+
+		file: elf.File
+		eerr := elf.file_init(&file, os.stream_from_handle(fh))
+		assert(eerr == nil)
+
+		Entry :: struct {
+			table: u32,
+			name:  u32,
+			value: uintptr,
+			size:  uintptr,
+		}
+
+		tables  := make([dynamic]elf.Symbol_Table, context.temp_allocator)
+		symbols := make([dynamic]Entry,            context.temp_allocator)
+
+		idx: int
+		for hdr in elf.iter_section_headers(&file, &idx, &eerr) {
+			#partial switch hdr.type {
+			case .SYMTAB, .DYNSYM, .SUNW_LDYNSYM:
+				strtbl: elf.String_Table
+				strtbl.file = &file
+
+				strtbl.hdr, eerr = elf.get_section_header(&file, int(hdr.link))
+				assert(eerr == nil)
+
+				symtab: elf.Symbol_Table
+				symtab.str_table = strtbl
+				symtab.hdr = hdr
+
+				assert(symtab.hdr.entsize > 0)
+				assert(symtab.hdr.size % symtab.hdr.entsize == 0)
+
+				append(&tables, symtab)
+				table := len(tables)-1
+
+				idx: int
+				for sym in elf.iter_symbols(&symtab, &idx, &eerr) {
+					append(&symbols, Entry{
+						table = u32(table),
+						name  = sym.name,
+						value = uintptr(sym.value),
+						size  = uintptr(sym.size),
+					})
+				}
+			}
+		}
+		assert(eerr == nil)
+
+		slice.sort_by(symbols[:], proc(a, b: Entry) -> bool {
+			return a.value < b.value
+		})
+
 		for msg, i in msgs {
+			// TODO: this API is weird as fuck.
+			idx, _ := slice.binary_search_by(symbols[:], Entry{value = uintptr(bt[i])}, proc(a, b: Entry) -> slice.Ordering {
+				return slice.cmp_proc(uintptr)(a.value, b.value)
+			})
+
 			out[i] = Line {
 				location = strings.clone_from(msg),
 				symbol   = "??",
 			}
+
+			if idx <= 0 {
+				continue
+			}
+
+			symbol := symbols[idx-1]
+			// offset := uintptr(bt[i]) - symbol.value
+			if uintptr(bt[i]) > symbol.value + symbol.size {
+				continue
+			}
+
+			tbl := tables[symbol.table]
+			out[i].symbol, eerr = elf.get_string(&tbl.str_table, int(symbol.name))
+			assert(eerr == nil)
 		}
 		return
 	}
