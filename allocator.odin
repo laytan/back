@@ -2,10 +2,8 @@ package back
 
 import "core:fmt"
 import "core:mem"
-import "core:os"
 import "core:runtime"
 import "core:sync"
-import "core:thread"
 
 // The backtrace tracking allocator is the same allocator as the core tracking allocator but keeps
 // backtraces for each allocation.
@@ -205,81 +203,19 @@ tracking_allocator_print_results :: proc(t: ^Tracking_Allocator, type: Result_Ty
 
 	context.allocator = t.internals_allocator
 
-	Work :: struct {
-		trace:   Trace_Const,
-		result:  []Line,
-		err:     Lines_Error,
-	}
-
-	trace_count: int
-	switch type {
-	case .Both:
-		trace_count = len(t.allocation_map) + len(t.bad_free_array)
-	case .Leaks:
-		trace_count = len(t.allocation_map)
-	case .Bad_Frees:
-		trace_count = len(t.bad_free_array)
-	}
-
-	work := make([]Work, trace_count)
-	defer delete(work)
-
-	i: int
 	if type == .Both || type == .Leaks {
 		for _, leak in t.allocation_map {
-			work[i].trace = leak.backtrace
-			i += 1
-		}
-	}
-
-	if type == .Both || type == .Bad_Frees {
-		for bad_free in t.bad_free_array {
-			work[i].trace   = bad_free.backtrace
-			i += 1
-		}
-	}
-
-	extra_threads := max(0, min(os.processor_core_count() - 1, trace_count - 1))
-	extra_threads_done: sync.Wait_Group
-	sync.wait_group_add(&extra_threads_done, extra_threads + 1)
-
-	// Processes the slice of work given.
-	thread_proc :: proc(work: ^[]Work, start: int, end: int, extra_threads_done: ^sync.Wait_Group) {
-		defer sync.wait_group_done(extra_threads_done)
-
-		for &entry in work[start:end] {
-			entry.result, entry.err = lines(entry.trace.trace[:entry.trace.len])
-		}
-	}
-
-	thread_work := trace_count / extra_threads
-	worked: int
-	for i in 0..<extra_threads {
-		thread.run_with_poly_data4(&work, worked, worked + thread_work, &extra_threads_done, thread_proc)
-		worked += thread_work
-	}
-
-	thread_proc(&work, worked, len(work), &extra_threads_done)
-	sync.wait_group_wait(&extra_threads_done)
-
-	if type == .Both || type == .Leaks {
-		work_leaks := work[:len(t.allocation_map)]
-		work = work[len(t.allocation_map):]
-		li: int
-		for _, leak in t.allocation_map {
-			defer li+=1
-
 			fmt.eprintf("\x1b[31m%v leaked %m\x1b[0m\n", leak.location, leak.size)
 			fmt.eprintln("[back trace]")
 
-			work_leak := work_leaks[li]
-			defer lines_destroy(work_leak.result)
-			if work_leak.err != nil {
-				fmt.eprintf("backtrace error: %v\n", work_leak.err)
+			lines, lines_err := lines(leak.backtrace)
+			if lines_err != nil {
+				fmt.eprintf("backtrace error: %v\n", lines_err)
 				continue
 			}
+			defer lines_destroy(lines)
 
-			print(work_leak.result)
+			print(lines)
 			fmt.eprintln()
 		}
 
@@ -295,14 +231,14 @@ tracking_allocator_print_results :: proc(t: ^Tracking_Allocator, type: Result_Ty
 			)
 			fmt.eprintln("[back trace]")
 
-			work_free := work[fi]
-			defer lines_destroy(work_free.result)
-			if work_free.err != nil {
-				fmt.eprintf("backtrace error: %v\n", work_free.err)
+			lines, lines_err := lines(bad_free.backtrace)
+			if lines_err != nil {
+				fmt.eprintf("backtrace error: %v\n", lines_err)
 				continue
 			}
+			defer lines_destroy(lines)
 
-			print(work_free.result)
+			print(lines)
 
 			if fi + 1 < len(t.bad_free_array) do fmt.eprintln()
 		}
