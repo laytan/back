@@ -132,3 +132,49 @@ test_dwarf :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, derr, nil)
 }
+
+@(test)
+test_cfi :: proc(t: ^testing.T) {
+	address := u64(uintptr(rawptr(os.open)))
+
+	fh, err := os.open(os.args[0], os.O_RDONLY)
+	testing.expect_value(t, err, 0)
+	stream := os.stream_from_handle(fh)
+
+	file: File
+	ferr := file_init(&file, stream)
+	testing.expect_value(t, ferr, nil)
+
+	has_dwarf, has_dwarf_err := has_dwarf_info(&file)
+	testing.expect_value(t, has_dwarf_err, nil)
+
+	if !has_dwarf {
+		testing.log(t, "no dwarf info, skipping their tests")
+		return
+	}
+
+	info, info_err := dwarf_info(&file, false, false)
+	testing.expect_value(t, info_err, nil)
+
+	entries, cfi_err := dwarf.call_frame_info(info, context.temp_allocator)
+	testing.expect_value(t, cfi_err, nil)
+
+	testing.logf(t, "Looking for: %i", u64(address))
+
+	for entry in entries {
+		switch et in entry {
+		case dwarf.CIE:
+			testing.logf(t, "CIE: %#v\n", et)
+		case dwarf.FDE:
+			start := u64(et.initial_location)
+			end   := start + u64(et.address_range)
+
+			if start <= address && address <= end {
+				testing.logf(t, "FDE: %#v\n", et)
+			}
+
+		case dwarf.Zero:
+			testing.log(t, "Zero")
+		}
+	}
+}

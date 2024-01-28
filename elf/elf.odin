@@ -200,8 +200,8 @@ has_dwarf_info :: proc(file: ^File) -> (has: bool, err: Error) {
 	make_section_name_map(file) or_return
 	return (
 		".debug_info"  in file.section_name_map ||
-		".zdebug_info" in file.section_name_map
-		// ".eh_frame"    in file.section_name_map \
+		".zdebug_info" in file.section_name_map ||
+		".eh_frame"    in file.section_name_map \
 	), nil
 }
 

@@ -1,7 +1,7 @@
 package dwarf
 
-import "core:io"
 import "core:encoding/endian"
+import "core:io"
 import "core:mem"
 import "core:strings"
 
@@ -729,6 +729,42 @@ read_u64 :: proc(info: Info, target: ^u64) -> Error {
 	switch info.config.little_endian {
 	case false: target^ = endian.unchecked_get_u64be(buf[:])
 	case true:  target^ = endian.unchecked_get_u64le(buf[:])
+	}
+	return nil
+}
+
+@(private)
+read_i16 :: proc(info: Info, target: ^i16) -> Error {
+	buf: [size_of(i16)]byte = ---
+	io.read_full(info.reader, buf[:]) or_return
+
+	switch info.config.little_endian {
+	case false: target^ = transmute(i16)endian.unchecked_get_u16be(buf[:])
+	case true:  target^ = transmute(i16)endian.unchecked_get_u16le(buf[:])
+	}
+	return nil
+}
+
+@(private)
+read_i32 :: proc(info: Info, target: ^i32) -> Error {
+	buf: [size_of(i32)]byte = ---
+	io.read_full(info.reader, buf[:]) or_return
+
+	switch info.config.little_endian {
+	case false: target^ = transmute(i32)endian.unchecked_get_u32be(buf[:])
+	case true:  target^ = transmute(i32)endian.unchecked_get_u32le(buf[:])
+	}
+	return nil
+}
+
+@(private)
+read_i64 :: proc(info: Info, target: ^i64) -> Error {
+	buf: [size_of(i64)]byte = ---
+	io.read_full(info.reader, buf[:]) or_return
+
+	switch info.config.little_endian {
+	case false: target^ = transmute(i64)endian.unchecked_get_u64be(buf[:])
+	case true:  target^ = transmute(i64)endian.unchecked_get_u64le(buf[:])
 	}
 	return nil
 }
