@@ -86,6 +86,8 @@ Bits :: enum {
 	Bits_64,
 }
 
+import "core:fmt"
+
 parse_CU_at_offset :: proc(info: Info, debug_info: Debug_Section_Descriptor, off: u64) -> (cu: CU, err: Error) {
 	cu.offset = off
 
@@ -106,7 +108,8 @@ parse_CU_at_offset :: proc(info: Info, debug_info: Debug_Section_Descriptor, off
 	read_u16(info, &cu.hdr.version) or_return
 
 	if cu.hdr.version != 4 {
-		panic("todo: DWARF version != 4")
+		fmt.println("danger zone: version != 4")
+		// panic("todo: DWARF version != 4")
 	}
 
 	read_uint(info, cu.hdr.format, &cu.hdr.debug_abbrev_offset) or_return
@@ -129,7 +132,10 @@ Attr_Value :: union {
 	u64,
 	u128,
 	i64,
+	Cstring_Offset,
 }
+
+Cstring_Offset :: distinct u64
 
 top_DIE :: proc(info: Info, cu: CU, allocator := context.allocator) -> (die: DIE, err: Error) {
 	die.attributes.allocator = allocator
@@ -219,7 +225,9 @@ parse_die :: proc(info: Info, cu: CU, die: ^DIE) -> (err: Error) {
 
 		// cstring.
 		case .string:
-			panic("unimplemented: cstring")
+			// panic("unimplemented: cstring")
+			value = Cstring_Offset(die_off)
+			die_off += discard_cstring(info) or_return
 
 		// (u32 if address size 4 else u64) if dwarf version 2 else (u32 if dwarf format 32 else u64).
 		case .addr, .ref_addr:
@@ -633,7 +641,8 @@ parse_line_program_at_offset :: proc(info: Info, off: u64, allocator := context.
 	read_u16(info, &lp.hdr.version) or_return
 
 	if lp.hdr.version != 4 {
-		panic("todo: DWARF version != 4")
+		fmt.println("danger zone: dwarf version != 4")
+		// panic("todo: DWARF version != 4")
 	}
 
 	// PERF: might be able to read the entire header at once at this point.
@@ -846,4 +855,14 @@ read_cstring :: proc(info: Info, dest: io.Stream) -> Error {
 		io.write_byte(dest, byte) or_return
 	}
 	return nil
+}
+
+@(private)
+discard_cstring :: proc(info: Info) -> (n: u64, err: Error) {
+	for {
+		byte := io.read_byte(info.reader) or_return
+		if byte == 0 { break }
+		n += 1
+	}
+	return
 }

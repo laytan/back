@@ -1,5 +1,18 @@
 package dwarf
 
+// foreign import registers "registers.o"
+// foreign registers {
+// 	@(link_name="registers_current")
+// 	_registers_current :: proc(rip, rsp, rbp: ^u64) ---
+// }
+//
+// registers_current :: #force_inline proc(regs: ^Registers) {
+// 	_registers_current((^u64)(&regs.rip), (^u64)(&regs.rsp), (^u64)(&regs.rbp))
+// 	(^i64)(uintptr(&regs.rip) + 8)^ = 1
+// 	(^i64)(uintptr(&regs.rsp) + 8)^ = 1
+// 	(^i64)(uintptr(&regs.rbp) + 8)^ = 1
+// }
+
 foreign import registers "registers.asm"
 foreign registers {
 	registers_current :: proc(regs: ^Registers) ---
@@ -11,7 +24,6 @@ Registers :: struct {
 	rbp: Maybe(u64), // Base pointer.
 	ret: Maybe(u64), // Return address.
 }
-
 
 Call_Frame :: struct {
 	pc: u64,
@@ -138,7 +150,7 @@ unwinder_init :: proc(u: ^Unwinder, info: ^Info, start: Registers) {
 	u.info = info
 }
 
-unwinder_next :: proc(u: ^Unwinder) -> (cf: Call_Frame, err: Error) {
+unwinder_next :: proc(u: ^Unwinder, allocator := context.temp_allocator) -> (cf: Call_Frame, err: Error) {
 	pc, has_pc := u.registers.rip.?
 	if !has_pc { return {}, .No_PC_Register }
 
@@ -147,7 +159,7 @@ unwinder_next :: proc(u: ^Unwinder) -> (cf: Call_Frame, err: Error) {
 		return { pc }, nil
 	}
 
-	row := unwind_info_for_address(u.info, pc, context.temp_allocator) or_return
+	row := unwind_info_for_address(u.info, pc, allocator) or_return
 	if row == nil {
 		return
 	}
@@ -467,7 +479,7 @@ unwind_table_evaluate :: proc(self: ^Unwind_Table, instr: Instruction) -> (row_d
 		return
 
 	case .def_cfa_register:
-		register := instr.args[0].(u8)
+		register := instr.args[0].(u64)
 
 		reg_off := &unwind_context_cfa(&self.ctx).(Register_And_Offset)
 		reg_off.register = Register_Mapping(register)

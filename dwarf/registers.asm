@@ -4,7 +4,8 @@ section .text
 
 global registers_current
 registers_current:
-	mov QWORD [rdi], $
+	mov r9, [rsp]
+	mov QWORD [rdi], r9
 	mov QWORD [rdi + 8], 1
 
 	mov [rdi + 16], rsp

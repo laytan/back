@@ -1,18 +1,18 @@
 //+private file
 package back
 
-import "core:c"
-import "core:fmt"
 import "core:os"
 import "core:runtime"
 import "core:slice"
 import "core:sys/linux"
 import "core:strings"
 
+// TODO: remove these dependencies.
+import "core:fmt"
+import "core:log"
+
 import "elf"
 import "dwarf"
-
-foreign import lib "system:c"
 
 PROGRAM: string
 
@@ -30,7 +30,9 @@ _Trace_Entry :: rawptr
 
 @(private="package")
 _trace :: proc(buf: Trace) -> (n: int) {
-	n = int(backtrace(raw_data(buf), i32(len(buf))))
+	ok: bool
+	n, ok = backtrace(buf)
+	if !ok { n = 0 }
 	return
 }
 
@@ -134,7 +136,7 @@ _lines :: proc(bt: Trace) -> (out: []Line, err: Lines_Error) {
 		assert(eerr == nil)
 	}
 
-	if has_dwarf, err := elf.has_dwarf_info(&file); !has_dwarf || err != nil {
+	if !elf.has_dwarf_info(&file) {
 		return
 	}
 
@@ -189,73 +191,47 @@ _lines :: proc(bt: Trace) -> (out: []Line, err: Lines_Error) {
 	return
 }
 
+backtrace :: proc(buf: Trace) -> (n: int, ok: bool) {
+	context.allocator = context.temp_allocator
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 
-foreign lib {
-	backtrace :: proc(buffer: [^]rawptr, size: c.int) -> c.int ---
-// 	backtrace_symbols :: proc(buffer: [^]rawptr, size: c.int) -> [^]cstring ---
-// 	backtrace_symbols_fd :: proc(buffer: [^]rawptr, size: c.int, fd: ^libc.FILE) ---
-//
-// 	popen :: proc(command: cstring, type: cstring) -> ^libc.FILE ---
-// 	pclose :: proc(stream: ^libc.FILE) -> c.int ---
+	fh, errno := os.open(PROGRAM, os.O_RDONLY)
+	if errno != os.ERROR_NONE {
+		log.errorf("back.trace: opening elf file %q, errno: %i", PROGRAM, errno)
+		return
+	}
+	defer os.close(fh)
+
+	file: elf.File
+	elf_err := elf.file_init(&file, os.stream_from_handle(fh)) // Allocates.
+	if elf_err != nil {
+		log.errorf("back.trace: elf file parsing init error: %v", elf_err)
+		return
+	}
+
+	if !elf.has_unwind_info(&file) {
+		log.warn("back.trace: elf file has no unwind info")
+		return
+	}
+
+	info, info_err := elf.dwarf_info(&file, false, false)
+	if info_err != nil {
+		log.errorf("back.trace: dwarf info construction error: %v", info_err)
+		return
+	}
+
+	regs: dwarf.Registers
+	dwarf.registers_current(&regs)
+
+	u: dwarf.Unwinder
+	dwarf.unwinder_init(&u, &info, regs)
+
+	for n < len(buf) {
+		cf := dwarf.unwinder_next(&u) or_break // Allocates.
+		buf[n] = rawptr(uintptr(cf.pc))
+		n += 1
+	}
+
+	ok = true
+	return
 }
-//
-// // Build command like: `{addr2line_path} {addresses} --functions --exe={program}`.
-// make_symbolizer_cmd :: proc(msgs: []cstring) -> (cmd: cstring, err: Lines_Error) {
-// 	cmd_builder := strings.builder_make()
-//
-// 	strings.write_string(&cmd_builder, ADDR2LINE_PATH)
-//
-// 	for msg in msgs {
-// 		addr := parse_address(msg) or_return
-//
-// 		strings.write_byte(&cmd_builder, ' ')
-// 		strings.write_string(&cmd_builder, addr)
-// 	}
-//
-// 	strings.write_string(&cmd_builder, " --functions --exe=")
-// 	strings.write_string(&cmd_builder, PROGRAM)
-//
-// 	strings.write_byte(&cmd_builder, 0)
-// 	return strings.unsafe_string_to_cstring(strings.to_string(cmd_builder)), nil
-// }
-//
-// read_message :: proc(buf: []byte, fp: ^libc.FILE) -> (msg: Line, err: Lines_Error) {
-// 	msg.symbol   = get_line(buf[:], fp) or_return
-// 	msg.location = get_line(buf[:], fp) or_return
-// 	return
-// }
-//
-// get_line :: proc(buf: []byte, fp: ^libc.FILE) -> (string, Lines_Error) {
-// 	defer slice.zero(buf)
-//
-// 	got := libc.fgets(raw_data(buf), i32(len(buf)), fp)
-// 	if got == nil {
-// 		if libc.feof(fp) == 0 {
-// 			return "", .Addr2line_Unexpected_EOF
-// 		}
-// 		return "", .Addr2line_Output_Error
-// 	}
-//
-// 	cout := cstring(raw_data(buf))
-// 	if (buf[0] == '?' || buf[0] == ' ') && (buf[1] == '?' || buf[1] == ' ') {
-// 		return "??", nil
-// 	}
-//
-// 	ret := strings.clone_from(cout)
-// 	ret = strings.trim_right_space(ret)
-// 	return ret, nil
-// }
-//
-// // Parses the address out of a backtrace line.
-// // Example: .../main() [0x100000] -> 0x100000
-// parse_address :: proc(msg: cstring) -> (string, Lines_Error) {
-// 	multi := transmute([^]byte)msg
-// 	msg_len := len(msg)
-// 	#reverse for c, i in multi[:msg_len] {
-// 		if c == '[' {
-// 			return string(multi[i + 1:msg_len - 1]), nil
-// 		}
-// 	}
-// 	return "", .Parse_Address_Fail
-// }
-//

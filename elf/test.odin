@@ -65,8 +65,7 @@ test_dwarf :: proc(t: ^testing.T) {
 	ferr := file_init(&file, stream)
 	testing.expect_value(t, ferr, nil)
 
-	has_dwarf, has_dwarf_err := has_dwarf_info(&file)
-	testing.expect_value(t, has_dwarf_err, nil)
+	has_dwarf := has_dwarf_info(&file)
 
 	if !has_dwarf {
 		testing.log(t, "no dwarf info, skipping their tests")
@@ -144,15 +143,12 @@ test_cfi :: proc(t: ^testing.T) {
 	ferr := file_init(&file, stream)
 	testing.expect_value(t, ferr, nil)
 
-	has_dwarf, has_dwarf_err := has_dwarf_info(&file)
-	testing.expect_value(t, has_dwarf_err, nil)
+	has_dwarf := has_unwind_info(&file)
 
 	if !has_dwarf {
 		testing.log(t, "no dwarf info, skipping their tests")
 		return
 	}
-
-	testing.logf(t, "test_cfi: %s, %v", symbolize(&file, u64(uintptr(rawptr(test_cfi)))))
 
 	info, info_err := dwarf_info(&file, false, false)
 	testing.expect_value(t, info_err, nil)
@@ -160,96 +156,13 @@ test_cfi :: proc(t: ^testing.T) {
 	regs: dwarf.Registers
 	dwarf.registers_current(&regs)
 
-	testing.logf(t, "%#v", regs)
-
 	u: dwarf.Unwinder
 	dwarf.unwinder_init(&u, &info, regs)
 
-	cf, u_err := dwarf.unwinder_next(&u)
-	testing.expect_value(t, u_err, nil)
-
-	testing.logf(t, "%#v", cf)
-
-	testing.logf(t, "symbol: %v, %v", symbolize(&file, cf.pc))
-
-	cf, u_err = dwarf.unwinder_next(&u)
-	testing.expect_value(t, u_err, nil)
-
-	testing.logf(t, "%#v", cf)
-
-	testing.logf(t, "symbol: %v, %v", symbolize(&file, cf.pc))
-	//
-	// cf, u_err = dwarf.unwinder_next(&u)
-	// testing.expect_value(t, u_err, nil)
-	//
-	// testing.logf(t, "%#v", cf)
-	//
-	// testing.logf(t, "symbol: %v, %v", symbolize(&file, cf.pc))
-
-	// row, uw_err := dwarf.unwind_info_for_address(&info, address)
-	// testing.expect_value(t, uw_err, nil)
-	//
-	// testing.logf(t, "%#v", row)
-
-	// row, row_err := dwarf.unwind_table_next_row(&tbl)
-	// testing.expect_value(t, row_err, nil)
-	//
-	// testing.logf(t, "%#v", row)
-	//
-	// row, row_err = dwarf.unwind_table_next_row(&tbl)
-	// testing.expect_value(t, row_err, nil)
-	//
-	// testing.logf(t, "%#v", row)
-	//
-	// row, row_err = dwarf.unwind_table_next_row(&tbl)
-	// testing.expect_value(t, row_err, nil)
-	//
-	// testing.logf(t, "%#v", row)
-	//
-	// row, row_err = dwarf.unwind_table_next_row(&tbl)
-	// testing.expect_value(t, row_err, nil)
-	//
-	// testing.logf(t, "%#v", row)
-	//
-	// row, row_err = dwarf.unwind_table_next_row(&tbl)
-	// testing.expect_value(t, row_err, nil)
-	//
-	// testing.logf(t, "%#v", row)
-	//
-	// row, row_err = dwarf.unwind_table_next_row(&tbl)
-	// testing.expect_value(t, row_err, nil)
-	//
-	// testing.logf(t, "%#v", row)
-
-	// testing.logf(t, "%#v", ctx)
-	// testing.logf(t, "%#v", tbl)
-
-	// entries, cfi_err := dwarf.call_frame_info(info, context.temp_allocator)
-	// testing.expect_value(t, cfi_err, nil)
-	//
-	// testing.logf(t, "Looking for: %i", u64(address))
-	//
-	// for entry in entries {
-	// 	switch et in entry {
-	// 	case dwarf.CIE:
-	// 		testing.logf(t, "CIE: %#v\n", et)
-	// 	case dwarf.FDE:
-	// 		start := u64(et.initial_location)
-	// 		end   := start + u64(et.address_range)
-	//
-	// 		if start <= address && address <= end {
-	// 			testing.logf(t, "FDE: %#v\n", et)
-	// 		}
-	//
-	// 	case dwarf.Zero:
-	// 		testing.log(t, "Zero")
-	// 	}
-	// }
-
-	// regs: dwarf.Registers
-	// dwarf.registers_current(&regs)
-
-	// testing.logf(t, "%#v\n", regs)
+	for {
+		cf := dwarf.unwinder_next(&u) or_break
+		testing.logf(t, "%v - %v", cf.pc, symbolize(&file, cf.pc) or_break)
+	}
 }
 
 import "core:slice"
@@ -313,9 +226,22 @@ symbolize :: proc(file: ^File, address: u64) -> (symbol_str: string, ok: bool) {
 		return
 	}
 
-	symbol := symbols[i]
-	offset := uintptr(address) - symbol.value
-	if uintptr(address) > symbol.value + symbol.size {
+	_symbol: Maybe(Entry)
+	offset: uintptr
+	for maybe in i-1..=i {
+		if maybe >= len(symbols) { continue }
+		symbol := symbols[maybe]
+
+		offset = uintptr(address) - symbol.value
+		if uintptr(address) > symbol.value + symbol.size {
+			continue
+		}
+		_symbol = symbol
+		break
+	}
+
+	symbol, has_symbol := _symbol.?
+	if !has_symbol {
 		return
 	}
 

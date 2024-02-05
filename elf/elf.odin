@@ -84,6 +84,8 @@ file_init :: proc(file: ^File, reader: io.Reader, allocator := context.allocator
 
 	file.hdr_str_tbl = get_hdr_string_table(file) or_return
 
+	make_section_name_map(file) or_return
+
 	return nil
 }
 
@@ -146,8 +148,6 @@ copy_section_name :: proc(file: ^File, hdr: Shdr, allocator := context.allocator
 
 // Returns the interned section name of a section number, the string is destroyed with `file_destroy`.
 section_name :: proc(file: ^File, n: int) -> (name: string, err: Error) {
-	make_section_name_map(file) or_return
-
 	for sname, sn in file.section_name_map {
 		if sn == n {
 			return sname, nil
@@ -158,7 +158,6 @@ section_name :: proc(file: ^File, n: int) -> (name: string, err: Error) {
 }
 
 get_section_header_by_name :: proc(file: ^File, name: string) -> (hdr: Maybe(Shdr), err: Error) {
-	make_section_name_map(file) or_return
 	if name not_in file.section_name_map {
 		return
 	}
@@ -167,7 +166,6 @@ get_section_header_by_name :: proc(file: ^File, name: string) -> (hdr: Maybe(Shd
 }
 
 get_section_by_name :: proc(file: ^File, name: string) -> (section: Section, err: Error) {
-	make_section_name_map(file) or_return
 	if name not_in file.section_name_map {
 		return
 	}
@@ -196,13 +194,15 @@ get_section_header :: proc(file: ^File, n: int) -> (hdr: Shdr, err: Error) {
 }
 
 
-has_dwarf_info :: proc(file: ^File) -> (has: bool, err: Error) {
-	make_section_name_map(file) or_return
+has_dwarf_info :: proc(file: ^File) -> bool {
 	return (
 		".debug_info"  in file.section_name_map ||
-		".zdebug_info" in file.section_name_map ||
-		".eh_frame"    in file.section_name_map \
-	), nil
+		".zdebug_info" in file.section_name_map \
+	)
+}
+
+has_unwind_info :: proc(file: ^File) -> bool {
+	return ".eh_frame" in file.section_name_map
 }
 
 Debug_Sections :: enum {
@@ -392,8 +392,6 @@ make_section_name_map :: proc(file: ^File) -> Error {
 
 @(private)
 make_section :: proc(file: ^File, n: int, shdr: Shdr) -> (section: Section, err: Error) {
-	make_section_name_map(file) or_return
-
 	name := section_name(file, n) or_return
 
 	base := Section_Base{
