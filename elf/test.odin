@@ -2,6 +2,7 @@ package elf
 
 import "core:os"
 import "core:testing"
+import "core:sys/llvm"
 
 import "../dwarf"
 
@@ -135,8 +136,6 @@ test_dwarf :: proc(t: ^testing.T) {
 
 @(test)
 test_cfi :: proc(t: ^testing.T) {
-	address := u64(uintptr(rawptr(os.open)))
-
 	fh, err := os.open(os.args[0], os.O_RDONLY)
 	testing.expect_value(t, err, 0)
 	stream := os.stream_from_handle(fh)
@@ -153,28 +152,181 @@ test_cfi :: proc(t: ^testing.T) {
 		return
 	}
 
+	testing.logf(t, "test_cfi: %s, %v", symbolize(&file, u64(uintptr(rawptr(test_cfi)))))
+
 	info, info_err := dwarf_info(&file, false, false)
 	testing.expect_value(t, info_err, nil)
 
-	entries, cfi_err := dwarf.call_frame_info(info, context.temp_allocator)
-	testing.expect_value(t, cfi_err, nil)
+	regs: dwarf.Registers
+	dwarf.registers_current(&regs)
 
-	testing.logf(t, "Looking for: %i", u64(address))
+	testing.logf(t, "%#v", regs)
 
-	for entry in entries {
-		switch et in entry {
-		case dwarf.CIE:
-			testing.logf(t, "CIE: %#v\n", et)
-		case dwarf.FDE:
-			start := u64(et.initial_location)
-			end   := start + u64(et.address_range)
+	u: dwarf.Unwinder
+	dwarf.unwinder_init(&u, &info, regs)
 
-			if start <= address && address <= end {
-				testing.logf(t, "FDE: %#v\n", et)
+	cf, u_err := dwarf.unwinder_next(&u)
+	testing.expect_value(t, u_err, nil)
+
+	testing.logf(t, "%#v", cf)
+
+	testing.logf(t, "symbol: %v, %v", symbolize(&file, cf.pc))
+
+	cf, u_err = dwarf.unwinder_next(&u)
+	testing.expect_value(t, u_err, nil)
+
+	testing.logf(t, "%#v", cf)
+
+	testing.logf(t, "symbol: %v, %v", symbolize(&file, cf.pc))
+	//
+	// cf, u_err = dwarf.unwinder_next(&u)
+	// testing.expect_value(t, u_err, nil)
+	//
+	// testing.logf(t, "%#v", cf)
+	//
+	// testing.logf(t, "symbol: %v, %v", symbolize(&file, cf.pc))
+
+	// row, uw_err := dwarf.unwind_info_for_address(&info, address)
+	// testing.expect_value(t, uw_err, nil)
+	//
+	// testing.logf(t, "%#v", row)
+
+	// row, row_err := dwarf.unwind_table_next_row(&tbl)
+	// testing.expect_value(t, row_err, nil)
+	//
+	// testing.logf(t, "%#v", row)
+	//
+	// row, row_err = dwarf.unwind_table_next_row(&tbl)
+	// testing.expect_value(t, row_err, nil)
+	//
+	// testing.logf(t, "%#v", row)
+	//
+	// row, row_err = dwarf.unwind_table_next_row(&tbl)
+	// testing.expect_value(t, row_err, nil)
+	//
+	// testing.logf(t, "%#v", row)
+	//
+	// row, row_err = dwarf.unwind_table_next_row(&tbl)
+	// testing.expect_value(t, row_err, nil)
+	//
+	// testing.logf(t, "%#v", row)
+	//
+	// row, row_err = dwarf.unwind_table_next_row(&tbl)
+	// testing.expect_value(t, row_err, nil)
+	//
+	// testing.logf(t, "%#v", row)
+	//
+	// row, row_err = dwarf.unwind_table_next_row(&tbl)
+	// testing.expect_value(t, row_err, nil)
+	//
+	// testing.logf(t, "%#v", row)
+
+	// testing.logf(t, "%#v", ctx)
+	// testing.logf(t, "%#v", tbl)
+
+	// entries, cfi_err := dwarf.call_frame_info(info, context.temp_allocator)
+	// testing.expect_value(t, cfi_err, nil)
+	//
+	// testing.logf(t, "Looking for: %i", u64(address))
+	//
+	// for entry in entries {
+	// 	switch et in entry {
+	// 	case dwarf.CIE:
+	// 		testing.logf(t, "CIE: %#v\n", et)
+	// 	case dwarf.FDE:
+	// 		start := u64(et.initial_location)
+	// 		end   := start + u64(et.address_range)
+	//
+	// 		if start <= address && address <= end {
+	// 			testing.logf(t, "FDE: %#v\n", et)
+	// 		}
+	//
+	// 	case dwarf.Zero:
+	// 		testing.log(t, "Zero")
+	// 	}
+	// }
+
+	// regs: dwarf.Registers
+	// dwarf.registers_current(&regs)
+
+	// testing.logf(t, "%#v\n", regs)
+}
+
+import "core:slice"
+import "core:fmt"
+
+symbolize :: proc(file: ^File, address: u64) -> (symbol_str: string, ok: bool) {
+	Entry :: struct {
+		table: u32,
+		name:  u32,
+		value: uintptr,
+		size:  uintptr,
+	}
+
+	tables  := make([dynamic]Symbol_Table, context.temp_allocator)
+	symbols := make([dynamic]Entry,        context.temp_allocator)
+
+	eerr: Error
+	idx: int
+	for hdr in iter_section_headers(file, &idx, &eerr) {
+		#partial switch hdr.type {
+		case .SYMTAB, .DYNSYM, .SUNW_LDYNSYM:
+			strtbl: String_Table
+			strtbl.file = file
+
+			strtbl.hdr, eerr = get_section_header(file, int(hdr.link))
+			assert(eerr == nil)
+
+			symtab: Symbol_Table
+			symtab.str_table = strtbl
+			symtab.hdr = hdr
+
+			assert(symtab.hdr.entsize > 0)
+			assert(symtab.hdr.size % symtab.hdr.entsize == 0)
+
+			append(&tables, symtab)
+			table := len(tables)-1
+
+			idx: int
+			for sym in iter_symbols(&symtab, &idx, &eerr) {
+				append(&symbols, Entry{
+					table = u32(table),
+					name  = sym.name,
+					value = uintptr(sym.value),
+					size  = uintptr(sym.size),
+				})
 			}
-
-		case dwarf.Zero:
-			testing.log(t, "Zero")
 		}
 	}
+	assert(eerr == nil)
+
+	slice.sort_by(symbols[:], proc(a, b: Entry) -> bool {
+		return a.value < b.value
+	})
+
+	// TODO: this API is weird as fuck.
+	i, _ := slice.binary_search_by(symbols[:], Entry{value = uintptr(address)}, proc(a, b: Entry) -> slice.Ordering {
+		return slice.cmp_proc(uintptr)(a.value, b.value)
+	})
+
+	if i <= 0 {
+		return
+	}
+
+	symbol := symbols[i]
+	offset := uintptr(address) - symbol.value
+	if uintptr(address) > symbol.value + symbol.size {
+		return
+	}
+
+	tbl := tables[symbol.table]
+
+	// TODO: make this one allocation.
+
+	symbol_str, eerr = get_string(&tbl.str_table, int(symbol.name), context.temp_allocator)
+	symbol_str = fmt.aprintf("%v +%v", symbol_str, offset)
+	assert(eerr == nil)
+
+	ok = true
+	return
 }

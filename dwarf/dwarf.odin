@@ -44,6 +44,7 @@ Debug_Section_Descriptor :: struct {
 Error :: union #shared_nil {
 	io.Error,
 	mem.Allocator_Error,
+	Unwind_Error,
 }
 
 iter_CUs :: proc(info: Info, off: ^u64, err: ^Error) -> (cu: CU, ok: bool) {
