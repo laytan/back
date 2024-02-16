@@ -33,6 +33,7 @@ _trace :: proc(buf: Trace) -> (n: int) {
 	ok: bool
 	n, ok = backtrace(buf)
 	if !ok { n = 0 }
+	fmt.println(buf)
 	return
 }
 
@@ -228,6 +229,7 @@ backtrace :: proc(buf: Trace) -> (n: int, ok: bool) {
 
 	for n < len(buf) {
 		cf := dwarf.unwinder_next(&u) or_break // Allocates.
+		if cf.pc == 0 { break }
 		buf[n] = rawptr(uintptr(cf.pc))
 		n += 1
 	}
