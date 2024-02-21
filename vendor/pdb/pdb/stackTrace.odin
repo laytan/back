@@ -433,7 +433,7 @@ print_u64_x :: proc "contextless" (x: u64) #no_bounds_check {
 	}
 	i -= 1; a[i] = digits[u % b]
 
-	runtime.os_write(a[i:])
+	runtime.stderr_write(a[i:])
 }
 
 print_source_code_location :: proc (using scl: runtime.Source_Code_Location) {
