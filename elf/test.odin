@@ -1,9 +1,9 @@
 package elf
 
 import "core:os"
-import "core:testing"
-import "core:sys/llvm"
+import "core:slice"
 import "core:strings"
+import "core:testing"
 
 import "../dwarf"
 
@@ -165,9 +165,6 @@ test_cfi :: proc(t: ^testing.T) {
 		testing.logf(t, "%v - %v", cf.pc, symbolize(&file, cf.pc) or_break)
 	}
 }
-
-import "core:slice"
-import "core:fmt"
 
 symbolize :: proc(file: ^File, address: u64) -> (symbol_str: string, ok: bool) {
 	Entry :: struct {

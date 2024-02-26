@@ -211,10 +211,7 @@ parse_fde :: proc(info: Info, hdr: CFI_Header, off: u64, allocator := context.al
 	io.read_full(info.reader, fde.augmentation_bytes) or_return
 
 	lsda_pointer: Maybe(u64)
-	if lsda_encoding, ok := cie.augmentations[.LSDA_Encoding].(u8); ok {
-		basic_encoding    := encoding & 0x0f
-		encoding_modifier := encoding & 0xf0
-
+	if _, ok := cie.augmentations[.LSDA_Encoding].(u8); ok {
 		#partial switch Eh_Encoding_Flags(basic_encoding) {
 		case:
 			fmt.panicf("unimplemented field encoding: %v", Eh_Encoding_Flags(basic_encoding))
