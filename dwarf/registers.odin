@@ -1,17 +1,6 @@
 package dwarf
 
-// foreign import registers "registers.o"
-// foreign registers {
-// 	@(link_name="registers_current")
-// 	_registers_current :: proc(rip, rsp, rbp: ^u64) ---
-// }
-//
-// registers_current :: #force_inline proc(regs: ^Registers) {
-// 	_registers_current((^u64)(&regs.rip), (^u64)(&regs.rsp), (^u64)(&regs.rbp))
-// 	(^i64)(uintptr(&regs.rip) + 8)^ = 1
-// 	(^i64)(uintptr(&regs.rsp) + 8)^ = 1
-// 	(^i64)(uintptr(&regs.rbp) + 8)^ = 1
-// }
+import sa "core:container/small_array"
 
 foreign import registers "registers.asm"
 foreign registers {
@@ -27,109 +16,6 @@ Registers :: struct {
 
 Call_Frame :: struct {
 	pc: u64,
-}
-
-// Arch dependent.
-Register_Mapping :: enum u8 {
-	RAX,
-	RDX,
-	RCX,
-	RBX,
-	RSI,
-	RDI,
-	RBP,
-
-	RSP, // 7.
-
-	R8,
-	R9,
-	R10,
-	R11,
-	R12,
-	R13,
-	R14,
-	R15,
-
-	RA, // 16.
-
-	XMM0,
-	XMM1,
-	XMM2,
-	XMM3,
-	XMM4,
-	XMM5,
-	XMM6,
-	XMM7,
-	XMM8,
-	XMM9,
-	XMM10,
-	XMM11,
-	XMM12,
-	XMM13,
-	XMM14,
-	XMM15,
-
-	ST0,
-	ST1,
-	ST2,
-	ST3,
-	ST4,
-	ST5,
-	ST6,
-	ST7,
-
-	MM0,
-	MM1,
-	MM2,
-	MM3,
-	MM4,
-	MM5,
-	MM6,
-	MM7,
-
-	RFLAGS,
-
-	ES,
-	CS,
-	SS,
-	DS,
-	FS,
-	GS,
-
-	FS_Base = 58,
-	GS_Base,
-
-	TR = 62,
-	LDTR,
-	MXCSR,
-	FCW,
-	FSW,
-
-	XMM16,
-	XMM17,
-	XMM18,
-	XMM19,
-	XMM20,
-	XMM21,
-	XMM22,
-	XMM23,
-	XMM24,
-	XMM25,
-	XMM26,
-	XMM27,
-	XMM28,
-	XMM29,
-	XMM30,
-	XMM31,
-
-	K0 = 118,
-	K1,
-	K2,
-	K3,
-	K4,
-	K5,
-	K6,
-	K7,
 }
 
 Unwind_Error :: enum {
@@ -191,7 +77,6 @@ unwinder_next :: proc(u: ^Unwinder, allocator := context.temp_allocator) -> (cf:
 			}
 		case Same_Value:
 		case Offset:
-			// TODO: no way this is correct.
 			ptr := cast(^uint)uintptr(u64(i64(u.cfa) + i64(rule)))
 			#partial switch reg {
 			case .RSP: u.registers.rsp = u64(ptr^)
@@ -212,6 +97,7 @@ unwinder_next :: proc(u: ^Unwinder, allocator := context.temp_allocator) -> (cf:
 }
 
 unwind_info_for_address :: proc(info: ^Info, address: u64, allocator := context.allocator) -> (row: ^Row, err: Error) {
+	// TODO: don't parse&allocate all this, use an iterator or something.
 	entries := call_frame_info(info^, allocator) or_return
 
 	cie: CIE
@@ -281,8 +167,6 @@ Row :: struct {
 	registers:     #sparse[Register_Mapping]Register_Rule,
 	is_default:    bool,
 }
-
-import sa "core:container/small_array"
 
 Unwind_Context :: struct {
 	stack:          sa.Small_Array(8, Row),

@@ -354,3 +354,107 @@ Form :: enum u64 {
     GNU_ref_alt         = 0x1f20,
     GNU_strp_alt        = 0x1f21,
 }
+
+// Arch dependent.
+Register_Mapping :: enum u8 {
+	RAX,
+	RDX,
+	RCX,
+	RBX,
+	RSI,
+	RDI,
+	RBP,
+
+	RSP, // 7.
+
+	R8,
+	R9,
+	R10,
+	R11,
+	R12,
+	R13,
+	R14,
+	R15,
+
+	RA, // 16.
+
+	XMM0,
+	XMM1,
+	XMM2,
+	XMM3,
+	XMM4,
+	XMM5,
+	XMM6,
+	XMM7,
+	XMM8,
+	XMM9,
+	XMM10,
+	XMM11,
+	XMM12,
+	XMM13,
+	XMM14,
+	XMM15,
+
+	ST0,
+	ST1,
+	ST2,
+	ST3,
+	ST4,
+	ST5,
+	ST6,
+	ST7,
+
+	MM0,
+	MM1,
+	MM2,
+	MM3,
+	MM4,
+	MM5,
+	MM6,
+	MM7,
+
+	RFLAGS,
+
+	ES,
+	CS,
+	SS,
+	DS,
+	FS,
+	GS,
+
+	FS_Base = 58,
+	GS_Base,
+
+	TR = 62,
+	LDTR,
+	MXCSR,
+	FCW,
+	FSW,
+
+	XMM16,
+	XMM17,
+	XMM18,
+	XMM19,
+	XMM20,
+	XMM21,
+	XMM22,
+	XMM23,
+	XMM24,
+	XMM25,
+	XMM26,
+	XMM27,
+	XMM28,
+	XMM29,
+	XMM30,
+	XMM31,
+
+	K0 = 118,
+	K1,
+	K2,
+	K3,
+	K4,
+	K5,
+	K6,
+	K7,
+}
+
