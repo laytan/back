@@ -86,8 +86,6 @@ Bits :: enum {
 	Bits_64,
 }
 
-import "core:fmt"
-
 parse_CU_at_offset :: proc(info: Info, debug_info: Debug_Section_Descriptor, off: u64) -> (cu: CU, err: Error) {
 	cu.offset = off
 
@@ -107,9 +105,8 @@ parse_CU_at_offset :: proc(info: Info, debug_info: Debug_Section_Descriptor, off
 
 	read_u16(info, &cu.hdr.version) or_return
 
-	if cu.hdr.version != 4 {
-		fmt.println("danger zone: version != 4")
-		// panic("todo: DWARF version != 4")
+	if cu.hdr.version >= 5 {
+		panic("unimplemented: DWARF version >= 5")
 	}
 
 	read_uint(info, cu.hdr.format, &cu.hdr.debug_abbrev_offset) or_return
@@ -118,7 +115,6 @@ parse_CU_at_offset :: proc(info: Info, debug_info: Debug_Section_Descriptor, off
 	curr := u64(io.seek(info.reader, 0, .Current) or_return)
 	cu.die_offset = curr - debug_info.global_offset
 
-	// TODO: rest of the CU.
 	return
 }
 
@@ -281,40 +277,69 @@ Attr_Spec :: struct {
 }
 
 get_abbrev :: proc(info: Info, tbl: Abbrev_Table, code: u64) -> (decl: Abbrev_Decl, err: Error) {
-	debug_abbrev := info.debug_abbrev.?
-	off := debug_abbrev.global_offset + tbl.offset
-	io.seek(info.reader, i64(off), .Start) or_return
-
-	for {
-		decl_code: u64
-		read_uleb128(info, &decl_code) or_return
-		if decl_code == 0 { break }
-
-		read_uleb128(info, (^u64)(&decl.tag)) or_return
-
-		decl.children = b8(io.read_byte(info.reader) or_return)
-
-		if decl_code == code {
-			curr := io.seek(info.reader, 0, .Current) or_return
-			decl.attrs_offset = u64(curr) - debug_abbrev.global_offset
+	off := iter_abbrev_init(info, tbl)
+	for abbrev, decl_code in iter_abbrev(info, &off, &err) {
+		if code == decl_code {
+			decl = abbrev
 			return
-		}
-
-		attr: Attr_Spec
-		for {
-			read_uleb128(info, (^u64)(&attr.name)) or_return
-			read_uleb128(info, (^u64)(&attr.form)) or_return
-			if attr.form == .implicit_const {
-				read_uleb128(info, &attr.value) or_return
-			}
-
-			if attr.name == .null && attr.form == .null {
-				break
-			}
 		}
 	}
 
 	err = .Unexpected_EOF
+	return
+}
+
+iter_abbrev_init :: proc(info: Info, tbl: Abbrev_Table) -> (off: u64) {
+	debug_abbrev := info.debug_abbrev.?
+	off = debug_abbrev.global_offset + tbl.offset
+	return
+}
+
+iter_abbrev :: proc(info: Info, off: ^u64, err: ^Error) -> (decl: Abbrev_Decl, decl_code: u64, ok: bool) {
+	_, err^ = io.seek(info.reader, i64(off^), .Start)
+	if err^ != nil { return }
+
+	_, err^ = read_uleb128(info, &decl_code)
+	if err^ != nil || decl_code == 0 { return }
+
+	_, err^ = read_uleb128(info, (^u64)(&decl.tag))
+	if err^ != nil { return }
+
+	_children, _err := io.read_byte(info.reader)
+	if _err != nil {
+		err^ = _err
+		return
+	}
+	decl.children = b8(_children)
+
+	curr: i64
+	curr, err^ = io.seek(info.reader, 0, .Current)
+	if err^ != nil { return }
+	debug_abbrev := info.debug_abbrev.?
+	decl.attrs_offset = u64(curr) - debug_abbrev.global_offset
+
+	attr: Attr_Spec
+	for {
+		_, err^ = read_uleb128(info, (^u64)(&attr.name))
+		if err^ != nil { return }
+		_, err^ = read_uleb128(info, (^u64)(&attr.form))
+		if err^ != nil { return }
+		if attr.form == .implicit_const {
+			_, err^ = read_uleb128(info, &attr.value)
+			if err^ != nil { return }
+		}
+
+		if attr.name == .null && attr.form == .null {
+			break
+		}
+	}
+
+	_off: i64
+	_off, err^ = io.seek(info.reader, 0, .Current)
+	if err^ != nil { return }
+	off^ = u64(_off)
+
+	ok = true
 	return
 }
 
@@ -640,20 +665,23 @@ parse_line_program_at_offset :: proc(info: Info, off: u64, allocator := context.
 
 	read_u16(info, &lp.hdr.version) or_return
 
-	if lp.hdr.version != 4 {
-		fmt.println("danger zone: dwarf version != 4")
-		// panic("todo: DWARF version != 4")
+	if lp.hdr.version >= 5 {
+		panic("unimplemented: DWARF version >= 5")
 	}
 
 	// PERF: might be able to read the entire header at once at this point.
 	read_uint(info, lp.hdr.format, &lp.hdr.header_length) or_return
 
-	lp.hdr.minimum_instruction_length         = io.read_byte(info.reader) or_return
-	lp.hdr.maximum_operations_per_instruction = io.read_byte(info.reader) or_return
-	lp.hdr.default_is_stmt                    = b8(io.read_byte(info.reader) or_return)
-	lp.hdr.line_base                          = transmute(i8)(io.read_byte(info.reader) or_return)
-	lp.hdr.line_range                         = io.read_byte(info.reader) or_return
-	lp.hdr.opcode_base                        = io.read_byte(info.reader) or_return
+	lp.hdr.minimum_instruction_length = io.read_byte(info.reader) or_return
+
+	if lp.hdr.version >= 4 {
+		lp.hdr.maximum_operations_per_instruction = io.read_byte(info.reader) or_return
+	}
+
+	lp.hdr.default_is_stmt = b8(io.read_byte(info.reader) or_return)
+	lp.hdr.line_base       = transmute(i8)(io.read_byte(info.reader) or_return)
+	lp.hdr.line_range      = io.read_byte(info.reader) or_return
+	lp.hdr.opcode_base     = io.read_byte(info.reader) or_return
 
 	lp.hdr.standard_opcode_lengths = make([]u8, lp.hdr.opcode_base-1, allocator) or_return
 	defer { if err != nil { delete(lp.hdr.standard_opcode_lengths, allocator) } }
@@ -847,7 +875,6 @@ read_sleb128 :: proc(info: Info, target: ^i64) -> (bytes_read: u64, err: Error) 
 	return
 }
 
-@(private)
 read_cstring :: proc(info: Info, dest: io.Stream) -> Error {
 	for {
 		byte := io.read_byte(info.reader) or_return
@@ -857,7 +884,6 @@ read_cstring :: proc(info: Info, dest: io.Stream) -> Error {
 	return nil
 }
 
-@(private)
 discard_cstring :: proc(info: Info) -> (n: u64, err: Error) {
 	for {
 		byte := io.read_byte(info.reader) or_return

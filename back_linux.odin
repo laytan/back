@@ -6,6 +6,7 @@ import "core:runtime"
 import "core:slice"
 import "core:sys/linux"
 import "core:strings"
+import "core:io"
 
 // TODO: remove these dependencies.
 import "core:fmt"
@@ -148,8 +149,14 @@ _lines :: proc(bt: Trace) -> (out: []Line, err: Lines_Error) {
 	off: u64
 	derr: dwarf.Error
 	for cu in dwarf.iter_CUs(info, &off, &derr) {
+		// PERF: both the line program and the comp_dir proc need to iterate the `debug_abbrev`
+		// section and their attributes, good to maybe cache.
+
 		lp, lp_err := dwarf.line_program_for_CU(info, cu, context.temp_allocator)
 		assert(lp_err == nil)
+
+		comp_dir, comp_dir_err := get_comp_dir_for_cu(info, cu, context.temp_allocator)
+		fmt.assertf(comp_dir_err == nil, "%v", comp_dir_err)
 
 		if rlp, has_lp := lp.?; has_lp {
 			entries, decode_err := dwarf.decode_line_program(info, cu, &rlp, context.temp_allocator)
@@ -169,8 +176,15 @@ _lines :: proc(bt: Trace) -> (out: []Line, err: Lines_Error) {
 							file := rlp.hdr.file_entries[prev_state.file - 1]
 							line := prev_state.line
 							col  := prev_state.column
+
+							// NOTE: Very sus, but, it seems like directory index 0 is always given
+							// to the entrypoint/main directory of the compilation unit,
+							// BUT, according to docs this means an invalid directory.
+							// So we are going against the docs here.
+							// Even with `objdump --dwarf=rawline` you can see there is no directory
+							// row for the main directory.
 							if file.dir_index == 0 {
-								out[i].location = fmt.aprintf("%s(%i:%i)", file.name, line, col)
+								out[i].location = fmt.aprintf("%s/%s(%i:%i)", comp_dir, file.name, line, col)
 							} else {
 								directory := rlp.hdr.include_directories[file.dir_index - 1]
 								out[i].location = fmt.aprintf("%s/%s(%i:%i)", directory, file.name, line, col)
@@ -189,6 +203,46 @@ _lines :: proc(bt: Trace) -> (out: []Line, err: Lines_Error) {
 		}
 	}
 
+	return
+}
+
+get_comp_dir_for_cu :: proc(info: dwarf.Info, cu: dwarf.CU, allocator := context.allocator) -> (dir: string, err: dwarf.Error) {
+	abbrev_tbl := dwarf.abbrev_table(info, cu.hdr.debug_abbrev_offset)
+
+	off := dwarf.iter_abbrev_init(info, abbrev_tbl)
+	for abbrev in dwarf.iter_abbrev(info, &off, &err) {
+		if abbrev.tag != .compile_unit { continue }
+
+		attr_off := dwarf.iter_abbr_attrs_init(info, abbrev)
+		for attr in dwarf.iter_abbr_attrs(info, &attr_off, &err) {
+			if attr.name != .comp_dir { continue }
+
+			strs := info.debug_str.?
+			io.seek(info.reader, i64(strs.global_offset+attr.value), .Start) or_return
+
+			// TODO: is this actually true or are we just lucky with offset `0` being the
+			// filename and then the directory here?
+			// A lot of these attributes are offset 0 and that freaks me out.
+			// Like, there is also a `.name` attribute with offset `0` (makes sense), but why
+			// is the directory not at the offset after it?
+
+			// First string is the filename.
+			dwarf.discard_cstring(info) or_return
+
+			// TODO: Should probably probe the length first here.
+			out := strings.builder_make(allocator)
+			if err = dwarf.read_cstring(info, strings.to_stream(&out)); err != nil {
+				strings.builder_destroy(&out)
+				return
+			}
+
+			dir = strings.to_string(out)
+			return
+		}
+		if err != nil { break }
+	}
+
+	err = .Unexpected_EOF
 	return
 }
 
