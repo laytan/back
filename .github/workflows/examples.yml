@@ -21,7 +21,7 @@ jobs:
 
       - name: get NASM
         if: matrix.os == 'ubuntu-latest'
-        run: apt-get install nasm
+        run: sudo apt-get install nasm
 
       - name: manual
         run: odin run examples/manual -vet -strict-style
