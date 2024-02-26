@@ -1,31 +1,29 @@
 //+private file
 package back
 
-import "core:c"
-import "core:c/libc"
-import "core:fmt"
 import "core:os"
-import "core:path/filepath"
+import "core:runtime"
 import "core:slice"
+import "core:sys/linux"
 import "core:strings"
+import "core:io"
 
-foreign import lib "system:c"
+// TODO: remove these dependencies.
+import "core:fmt"
+import "core:log"
 
-ADDR2LINE_PATH := #config(TRACE_ADDR2LINE_PATH, "addr2line")
-PROGRAM        := #config(BACK_PROGRAM, "")
+import "elf"
+import "dwarf"
+
+PROGRAM: string
 
 @(init)
 program_init :: proc() {
-	if PROGRAM == "" {
-		PROGRAM = os.args[0]
-		if !filepath.is_abs(PROGRAM) {
-			if abs, ok := filepath.abs(PROGRAM); ok {
-				PROGRAM = abs
-			} else {
-				fmt.eprintln("back: could not convert `os.args[0]` to an absolute path")
-			}
-		}
-	}
+	// TODO: don't do this in init, handle bigger paths.
+	prog: [1024]byte
+	read, err := linux.readlink("/proc/self/exe", prog[:])
+	assert(read != 1024 && err == .NONE, "reading /proc/self/exe failed")
+	PROGRAM = strings.clone_from(prog[:read])
 }
 
 @(private="package")
@@ -33,133 +31,262 @@ _Trace_Entry :: rawptr
 
 @(private="package")
 _trace :: proc(buf: Trace) -> (n: int) {
-	n = int(backtrace(raw_data(buf), i32(len(buf))))
+	ok: bool
+	n, ok = backtrace(buf)
+	if !ok { n = 0 }
 	return
 }
 
 @(private="package")
 _lines_destroy :: proc(msgs: []Line) {
 	for msg in msgs {
-		delete(msg.location)
-
-		when ODIN_DEBUG {
-			if msg.symbol != "" && msg.symbol != "??" do delete(msg.symbol)
-		}
+		if msg.location != "??" do delete(msg.location)
+		if msg.symbol   != "??" do delete(msg.symbol)
 	}
 	delete(msgs)
 }
 
 @(private="package")
 _lines :: proc(bt: Trace) -> (out: []Line, err: Lines_Error) {
-	msgs := backtrace_symbols(raw_data(bt), i32(len(bt)))[:len(bt)]
-	defer libc.free(raw_data(msgs))
-
 	out = make([]Line, len(bt))
 
-	// Debug info is needed.
-	when !ODIN_DEBUG {
-		for msg, i in msgs {
-			out[i] = Line {
-				location = strings.clone_from(msg),
-				symbol   = "??",
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD(ignore=context.allocator==context.temp_allocator)
+
+	fh, errno := os.open(PROGRAM, os.O_RDONLY)
+	assert(errno == os.ERROR_NONE)
+	defer os.close(fh)
+
+	file: elf.File
+	eerr := elf.file_init(&file, os.stream_from_handle(fh))
+	assert(eerr == nil)
+
+	Entry :: struct {
+		table: u32,
+		name:  u32,
+		value: uintptr,
+		size:  uintptr,
+	}
+
+	tables  := make([dynamic]elf.Symbol_Table, context.temp_allocator)
+	symbols := make([dynamic]Entry,            context.temp_allocator)
+
+	idx: int
+	for hdr in elf.iter_section_headers(&file, &idx, &eerr) {
+		#partial switch hdr.type {
+		case .SYMTAB, .DYNSYM, .SUNW_LDYNSYM:
+			strtbl: elf.String_Table
+			strtbl.file = &file
+
+			strtbl.hdr, eerr = elf.get_section_header(&file, int(hdr.link))
+			assert(eerr == nil)
+
+			symtab: elf.Symbol_Table
+			symtab.str_table = strtbl
+			symtab.hdr = hdr
+
+			assert(symtab.hdr.entsize > 0)
+			assert(symtab.hdr.size % symtab.hdr.entsize == 0)
+
+			append(&tables, symtab)
+			table := len(tables)-1
+
+			idx: int
+			for sym in elf.iter_symbols(&symtab, &idx, &eerr) {
+				append(&symbols, Entry{
+					table = u32(table),
+					name  = sym.name,
+					value = uintptr(sym.value),
+					size  = uintptr(sym.size),
+				})
 			}
 		}
-		return
 	}
+	assert(eerr == nil)
 
-	cmd := make_symbolizer_cmd(msgs) or_return
-	defer delete(cmd)
+	slice.sort_by(symbols[:], proc(a, b: Entry) -> bool {
+		return a.value < b.value
+	})
 
-	fp := popen(cmd, "r")
-	if fp == nil {
-		err = Lines_Error(libc.errno()^)
-		return
-	}
-	defer pclose(fp)
+	for &line, i in out {
+		// TODO: this API is weird as fuck.
+		idx, _ := slice.binary_search_by(symbols[:], Entry{value = uintptr(bt[i])}, proc(a, b: Entry) -> slice.Ordering {
+			return slice.cmp_proc(uintptr)(a.value, b.value)
+		})
 
-	// Parse output, each address gets 2 lines of output,
-	// one for the function/symbol and one for the location.
-	// If it could not be resolved, '??' is put out.
-	line_buf: [1024]byte
-	for msg, i in msgs {
-		out[i] = read_message(line_buf[:], fp) or_return
-		if out[i].location == "" || out[i].location == "??" {
-			out[i].location = strings.clone_from(msg)
+		line = Line {
+			location = "??",
+			symbol   = "??",
 		}
 
-		line_buf = 0
+		if idx <= 0 {
+			continue
+		}
+
+		symbol := symbols[idx-1]
+		offset := uintptr(bt[i]) - symbol.value
+		if uintptr(bt[i]) > symbol.value + symbol.size {
+			continue
+		}
+
+		tbl := tables[symbol.table]
+
+		// TODO: make this one allocation.
+		line.symbol, eerr = elf.get_string(&tbl.str_table, int(symbol.name), context.temp_allocator)
+		line.symbol = fmt.aprintf("%v +%v", line.symbol, offset)
+
+		assert(eerr == nil)
+	}
+
+	if !elf.has_dwarf_info(&file) {
+		return
+	}
+
+	info: dwarf.Info
+	info, eerr = elf.dwarf_info(&file, false, false)
+	assert(eerr == nil)
+
+	off: u64
+	derr: dwarf.Error
+	for cu in dwarf.iter_CUs(info, &off, &derr) {
+		// PERF: both the line program and the comp_dir proc need to iterate the `debug_abbrev`
+		// section and their attributes, good to maybe cache.
+
+		lp, lp_err := dwarf.line_program_for_CU(info, cu, context.temp_allocator)
+		assert(lp_err == nil)
+
+		comp_dir, comp_dir_err := get_comp_dir_for_cu(info, cu, context.temp_allocator)
+		fmt.assertf(comp_dir_err == nil, "%v", comp_dir_err)
+
+		if rlp, has_lp := lp.?; has_lp {
+			entries, decode_err := dwarf.decode_line_program(info, cu, &rlp, context.temp_allocator)
+			assert(decode_err == nil)
+
+			for _address, i in bt {
+				address := uintptr(_address)
+				_prev_state: Maybe(dwarf.Line_State)
+				for entry in entries {
+					state, has_state := entry.state.?
+					if !has_state {
+						continue
+					}
+
+					if prev_state, has_prev_state := _prev_state.?; has_prev_state {
+						if uintptr(prev_state.address) <= address && address < uintptr(state.address) {
+							file := rlp.hdr.file_entries[prev_state.file - 1]
+							line := prev_state.line
+							col  := prev_state.column
+
+							// NOTE: Very sus, but, it seems like directory index 0 is always given
+							// to the entrypoint/main directory of the compilation unit,
+							// BUT, according to docs this means an invalid directory.
+							// So we are going against the docs here.
+							// Even with `objdump --dwarf=rawline` you can see there is no directory
+							// row for the main directory.
+							if file.dir_index == 0 {
+								out[i].location = fmt.aprintf("%s/%s(%i:%i)", comp_dir, file.name, line, col)
+							} else {
+								directory := rlp.hdr.include_directories[file.dir_index - 1]
+								out[i].location = fmt.aprintf("%s/%s(%i:%i)", directory, file.name, line, col)
+							}
+							break
+						}
+					}
+
+					if state.end_sequence {
+						_prev_state = nil
+					} else {
+						_prev_state = state
+					}
+				}
+			}
+		}
 	}
 
 	return
 }
 
+get_comp_dir_for_cu :: proc(info: dwarf.Info, cu: dwarf.CU, allocator := context.allocator) -> (dir: string, err: dwarf.Error) {
+	abbrev_tbl := dwarf.abbrev_table(info, cu.hdr.debug_abbrev_offset)
 
-foreign lib {
-	backtrace :: proc(buffer: [^]rawptr, size: c.int) -> c.int ---
-	backtrace_symbols :: proc(buffer: [^]rawptr, size: c.int) -> [^]cstring ---
-	backtrace_symbols_fd :: proc(buffer: [^]rawptr, size: c.int, fd: ^libc.FILE) ---
+	off := dwarf.iter_abbrev_init(info, abbrev_tbl)
+	for abbrev in dwarf.iter_abbrev(info, &off, &err) {
+		if abbrev.tag != .compile_unit { continue }
 
-	popen :: proc(command: cstring, type: cstring) -> ^libc.FILE ---
-	pclose :: proc(stream: ^libc.FILE) -> c.int ---
-}
+		attr_off := dwarf.iter_abbr_attrs_init(info, abbrev)
+		for attr in dwarf.iter_abbr_attrs(info, &attr_off, &err) {
+			if attr.name != .comp_dir { continue }
 
-// Build command like: `{addr2line_path} {addresses} --functions --exe={program}`.
-make_symbolizer_cmd :: proc(msgs: []cstring) -> (cmd: cstring, err: Lines_Error) {
-	cmd_builder := strings.builder_make()
+			strs := info.debug_str.?
+			io.seek(info.reader, i64(strs.global_offset+attr.value), .Start) or_return
 
-	strings.write_string(&cmd_builder, ADDR2LINE_PATH)
+			// TODO: is this actually true or are we just lucky with offset `0` being the
+			// filename and then the directory here?
+			// A lot of these attributes are offset 0 and that freaks me out.
+			// Like, there is also a `.name` attribute with offset `0` (makes sense), but why
+			// is the directory not at the offset after it?
 
-	for msg in msgs {
-		addr := parse_address(msg) or_return
+			// First string is the filename.
+			dwarf.discard_cstring(info) or_return
 
-		strings.write_byte(&cmd_builder, ' ')
-		strings.write_string(&cmd_builder, addr)
+			// TODO: Should probably probe the length first here.
+			out := strings.builder_make(allocator)
+			if err = dwarf.read_cstring(info, strings.to_stream(&out)); err != nil {
+				strings.builder_destroy(&out)
+				return
+			}
+
+			dir = strings.to_string(out)
+			return
+		}
+		if err != nil { break }
 	}
 
-	strings.write_string(&cmd_builder, " --functions --exe=")
-	strings.write_string(&cmd_builder, PROGRAM)
-
-	strings.write_byte(&cmd_builder, 0)
-	return strings.unsafe_string_to_cstring(strings.to_string(cmd_builder)), nil
-}
-
-read_message :: proc(buf: []byte, fp: ^libc.FILE) -> (msg: Line, err: Lines_Error) {
-	msg.symbol   = get_line(buf[:], fp) or_return
-	msg.location = get_line(buf[:], fp) or_return
+	err = .Unexpected_EOF
 	return
 }
 
-get_line :: proc(buf: []byte, fp: ^libc.FILE) -> (string, Lines_Error) {
-	defer slice.zero(buf)
+backtrace :: proc(buf: Trace) -> (n: int, ok: bool) {
+	context.allocator = context.temp_allocator
+	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 
-	got := libc.fgets(raw_data(buf), i32(len(buf)), fp)
-	if got == nil {
-		if libc.feof(fp) == 0 {
-			return "", .Addr2line_Unexpected_EOF
-		}
-		return "", .Addr2line_Output_Error
+	fh, errno := os.open(PROGRAM, os.O_RDONLY)
+	if errno != os.ERROR_NONE {
+		log.errorf("back.trace: opening elf file %q, errno: %i", PROGRAM, errno)
+		return
+	}
+	defer os.close(fh)
+
+	file: elf.File
+	elf_err := elf.file_init(&file, os.stream_from_handle(fh)) // Allocates.
+	if elf_err != nil {
+		log.errorf("back.trace: elf file parsing init error: %v", elf_err)
+		return
 	}
 
-	cout := cstring(raw_data(buf))
-	if (buf[0] == '?' || buf[0] == ' ') && (buf[1] == '?' || buf[1] == ' ') {
-		return "??", nil
+	if !elf.has_unwind_info(&file) {
+		log.warn("back.trace: elf file has no unwind info")
+		return
 	}
 
-	ret := strings.clone_from(cout)
-	ret = strings.trim_right_space(ret)
-	return ret, nil
+	info, info_err := elf.dwarf_info(&file, false, false)
+	if info_err != nil {
+		log.errorf("back.trace: dwarf info construction error: %v", info_err)
+		return
+	}
+
+	regs: dwarf.Registers
+	dwarf.registers_current(&regs)
+
+	u: dwarf.Unwinder
+	dwarf.unwinder_init(&u, &info, regs)
+
+	for n < len(buf) {
+		cf := dwarf.unwinder_next(&u) or_break // Allocates.
+		if cf.pc == 0 { break }
+		buf[n] = rawptr(uintptr(cf.pc))
+		n += 1
+	}
+
+	ok = true
+	return
 }
-
-// Parses the address out of a backtrace line.
-// Example: .../main() [0x100000] -> 0x100000
-parse_address :: proc(msg: cstring) -> (string, Lines_Error) {
-	multi := transmute([^]byte)msg
-	msg_len := len(msg)
-	#reverse for c, i in multi[:msg_len] {
-		if c == '[' {
-			return string(multi[i + 1:msg_len - 1]), nil
-		}
-	}
-	return "", .Parse_Address_Fail
-}
-
