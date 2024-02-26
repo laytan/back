@@ -34,7 +34,6 @@ _trace :: proc(buf: Trace) -> (n: int) {
 	ok: bool
 	n, ok = backtrace(buf)
 	if !ok { n = 0 }
-	fmt.println(buf)
 	return
 }
 
