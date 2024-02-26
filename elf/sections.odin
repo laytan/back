@@ -122,6 +122,19 @@ String_Table :: struct {
 	using base: Section_Base,
 }
 
+read_string :: proc(tbl: ^String_Table, off: int, dest: io.Stream) -> (n: int, err: io.Error) {
+	off := i64(tbl.hdr.offset) + i64(off)
+	io.seek(tbl.file.reader, i64(off), .Start) or_return
+
+	for {
+		byte := io.read_byte(tbl.file.reader) or_return
+		if byte == 0 { break }
+		io.write_byte(dest, byte, &n) or_return
+	}
+
+	return
+}
+
 get_string :: proc(tbl: ^String_Table, off: int, allocator := context.allocator) -> (str: string, err: Error) {
 	off := i64(tbl.hdr.offset) + i64(off)
 	io.seek(tbl.file.reader, i64(off), .Start) or_return

@@ -250,7 +250,7 @@ symbolize :: proc(file: ^File, address: u64) -> (symbol_str: string, ok: bool) {
 
 	{
 		symbol_builder := strings.builder_make(context.temp_allocator)
-		_, eerr = write_string(&tbl.str_table, int(symbol.name), strings.to_stream(&symbol_builder))
+		_, eerr = read_string(&tbl.str_table, int(symbol.name), strings.to_stream(&symbol_builder))
 		assert(eerr == nil)
 
 		strings.write_string(&symbol_builder, " +")
