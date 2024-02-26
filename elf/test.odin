@@ -3,6 +3,7 @@ package elf
 import "core:os"
 import "core:testing"
 import "core:sys/llvm"
+import "core:strings"
 
 import "../dwarf"
 
@@ -247,11 +248,15 @@ symbolize :: proc(file: ^File, address: u64) -> (symbol_str: string, ok: bool) {
 
 	tbl := tables[symbol.table]
 
-	// TODO: make this one allocation.
+	{
+		symbol_builder := strings.builder_make(context.temp_allocator)
+		_, eerr = write_string(&tbl.str_table, int(symbol.name), strings.to_stream(&symbol_builder))
+		assert(eerr == nil)
 
-	symbol_str, eerr = get_string(&tbl.str_table, int(symbol.name), context.temp_allocator)
-	symbol_str = fmt.aprintf("%v +%v", symbol_str, offset)
-	assert(eerr == nil)
+		strings.write_string(&symbol_builder, " +")
+		strings.write_uint(&symbol_builder, uint(offset))
+		symbol_str = strings.to_string(symbol_builder)
+	}
 
 	ok = true
 	return
