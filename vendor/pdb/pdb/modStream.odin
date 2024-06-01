@@ -2,7 +2,7 @@
 package pdb
 import "core:log"
 import "core:slice"
-import "core:intrinsics"
+import "base:intrinsics"
 
 ModStreamHeader :: struct #packed {
     signature : ModStreamSignature, // expected to be .C13

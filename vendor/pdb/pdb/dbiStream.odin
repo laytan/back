@@ -1,7 +1,7 @@
 //! DBI Debug Info Stream reference: https://llvm.org/docs/PDB/DbiStream.html
 package pdb
 import "core:log"
-import "core:intrinsics"
+import "base:intrinsics"
 
 DbiStream_Index :MsfStreamIdx: 3
 

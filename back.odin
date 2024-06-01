@@ -3,7 +3,7 @@ package back
 import "core:fmt"
 import "core:io"
 import "core:os"
-import "core:runtime"
+import "base:runtime"
 import "core:text/table"
 
 BACKTRACE_SIZE :: #config(BACKTRACE_SIZE, 16)
