@@ -1,7 +1,7 @@
 //! CodeView Symbol Records, reference: https://llvm.org/docs/PDB/CodeViewSymbols.html
 package pdb
 import "core:log"
-import "core:intrinsics"
+import "base:intrinsics"
 
 CvsOffset :: distinct u32le
 

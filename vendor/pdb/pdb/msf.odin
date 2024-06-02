@@ -3,8 +3,8 @@ package pdb
 import "core:strings"
 import "core:mem"
 import "core:log"
-import "core:intrinsics"
-import "core:runtime"
+import "base:intrinsics"
+import "base:runtime"
 import "core:io"
 
 // SuperBlock|FPM1|FPM2|DataBlocks[BlockSize-3]|FPM1|FPM2|DataBlocks[BlockSize-3])+
