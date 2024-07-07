@@ -120,7 +120,7 @@ print :: proc(lines: []Line, padding := "    ", w: Maybe(io.Writer) = nil, no_te
 		table.row(tbl, padding, line.symbol, " - ", line.location)
 	}
 
-	table.build(tbl)
+	table.build(tbl, table.unicode_width_proc)
 
 	for row in 0..<tbl.nr_rows {
 		for col in 0..<tbl.nr_cols {
