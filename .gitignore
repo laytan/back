@@ -1,4 +1,5 @@
 manual
 assert_backtrace
 allocator
+*.exe
 ols.json
