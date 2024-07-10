@@ -169,7 +169,7 @@ read_dbiFileInfos :: proc(this: ^BlocksReader, $T: typeid) -> (ret: T) where int
             ret.srcFileNames[i] = read_length_prefixed_name(this)
             nameMap[nameOffset] = ret.srcFileNames[i]
         }
-        
+
     }
     return
 }
@@ -230,9 +230,11 @@ search_for_section_contribution :: proc(using this: ^SlimDbiData, imgRva : u32le
         if mv == 0 {
             lo = mid + 1
             break
-        }
-        else if mv < 0 do hi = mid - 1
-        else do lo = mid + 1
+        } else if mv < 0 {
+			hi = mid - 1
+		} else {
+			lo = mid + 1
+		}
     }
     if lo > 0 do lo -= 1
     return int(lo)
@@ -270,6 +272,7 @@ parse_dbi_stream :: proc(streamDir: ^StreamDirectory) -> (ret : SlimDbiData) {
     if !_is_new_version_format(header.buildNumber) {
         log.warnf("unrecognized old dbiBuildNumber: %v", header.buildNumber)
     }
+
     { // Module Info substream
         stack := make_stack(SlimDbiMod, int(header.modInfoSize / size_of(DbiModInfo)), context.temp_allocator)
         defer delete_stack(&stack)
@@ -283,6 +286,7 @@ parse_dbi_stream :: proc(streamDir: ^StreamDirectory) -> (ret : SlimDbiData) {
             ret.modules = make_slice_clone_from_stack(&stack)
         }
     }
+
     { // section contribution substream
         substreamEnd := uint(header.secContributionSize) + this.offset
         defer assert(this.offset == substreamEnd)

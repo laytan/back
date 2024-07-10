@@ -51,9 +51,11 @@ seek_for_tpi :: proc(using this: TpiIndexOffsetBuffer, ti : TypeIndex, tpiStream
         if mv == ti {
             lo = mid + 1
             break
-        }
-        else if mv > ti do hi = mid - 1
-        else do lo = mid + 1
+        } else if mv > ti {
+			hi = mid - 1
+		} else {
+			lo = mid + 1
+		}
     }
     if lo > 0 do lo -= 1
     //log.debugf("Find block [%v, %v) for ti%v", lo,lo+1, ti)

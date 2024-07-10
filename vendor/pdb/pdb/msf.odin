@@ -62,7 +62,7 @@ read_superblock :: proc(r: io.Reader) -> (this : SuperBlock, success: bool) {
 
 read_stream_dir :: proc(using this: ^SuperBlock, r: io.Reader) -> (sd: StreamDirectory, success: bool) {
     success = false
-    if seekN, seekErr := io.seek(r, i64(blockMapAddr * blockSize), .Start); seekErr != nil {
+    if _, seekErr := io.seek(r, i64(blockMapAddr * blockSize), .Start); seekErr != nil {
         log.debugf("seek failed with %v", seekErr)
         return
     }
@@ -89,7 +89,7 @@ read_stream_dir :: proc(using this: ^SuperBlock, r: io.Reader) -> (sd: StreamDir
         //fmt.printf("reading stream#%v size %v\n", i, sd.streamSizes[i])
         sd.streamBlocks[i] = make([]u32le, ceil_div(sd.streamSizes[i], blockSize))
     }
-    
+
     for i in 0..<sd.numStreams {
         streamBlock := sd.streamBlocks[i]
         //fmt.printf("reading stream#%v indices...\n", i)
@@ -185,7 +185,7 @@ read_packed :: #force_inline proc(using this: ^BlocksReader, $T: typeid) -> (ret
                 log.errorf("Invalid type: %v", type_info_of(T).variant)
                 assert(false)
             }
-        }    
+        }
         tsize := size_of(T)
         assert(size == 0 || offset + uint(tsize) <= size, "block overflow")
         pret := cast(^byte)&ret
@@ -196,7 +196,7 @@ read_packed :: #force_inline proc(using this: ^BlocksReader, $T: typeid) -> (ret
 }
 
 read_with_trailing_name :: #force_inline proc(this: ^BlocksReader, $T: typeid) -> (ret: T)
-    where intrinsics.type_has_field(T, "_base"), 
+    where intrinsics.type_has_field(T, "_base"),
           intrinsics.type_has_field(T, "name"),
           intrinsics.type_field_index_of(T, "name") == 1,
           intrinsics.type_struct_field_count(T) == 2 {
@@ -206,7 +206,7 @@ read_with_trailing_name :: #force_inline proc(this: ^BlocksReader, $T: typeid) -
 }
 
 read_with_size_and_trailing_name :: #force_inline proc(this: ^BlocksReader, $T: typeid) -> (ret: T)
-    where intrinsics.type_has_field(T, "_base"), 
+    where intrinsics.type_has_field(T, "_base"),
           intrinsics.type_has_field(T, "name"),
           intrinsics.type_has_field(T, "size"),
           intrinsics.type_field_index_of(T, "size") == 1,
@@ -338,13 +338,13 @@ get_rb :: #force_inline proc "contextless"(q: ^$Q/RingBuffer($T), #any_int i: in
 }
 set_rb :: proc "contextless"(q: ^$Q/RingBuffer($T), #any_int i: int, val: T, loc := #caller_location) {
 	runtime.bounds_check_error_loc(loc, i, len(q.data))
-	
+
 	idx := (uint(i)+q.offset)%len(q.data)
 	q.data[idx] = val
 }
 get_ptr_rb :: proc "contextless"(q: ^$Q/RingBuffer($T), #any_int i: int, loc := #caller_location) -> ^T {
 	runtime.bounds_check_error_loc(loc, i, len(q.data))
-	
+
 	idx := (uint(i)+q.offset)%len(q.data)
 	return &q.data[idx]
 }

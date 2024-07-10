@@ -22,8 +22,8 @@ foreign ntdll_lib {
         ControlPC: DWORD64,
         FunctionEntry: ^RUNTIME_FUNCTION,
         ContextRecord: ^CONTEXT,
-        HandlerData: ^rawptr, 
-        EstablisherFrame: ^DWORD64, 
+        HandlerData: ^rawptr,
+        EstablisherFrame: ^DWORD64,
         ContextPointers: ^KNONVOLATILE_CONTEXT_POINTERS,
     ) -> EXCEPTION_ROUTINE ---
 }
@@ -148,9 +148,9 @@ _AMD64_UNWIND_HISTORY_TABLE_ENTRY :: struct {
 //     using _dummyU     : struct #raw_union {
 //         X             : [31]DWORD64,
 //         using _dummyS : struct {
-//             X0, X1, X2, X3, X4, X5, X6, X7,   
-//             X8, X9, X10,X11,X12,X13,X14,X15,  
-//             X16,X17,X18,X19,X20,X21,X22,X23,  
+//             X0, X1, X2, X3, X4, X5, X6, X7,
+//             X8, X9, X10,X11,X12,X13,X14,X15,
+//             X16,X17,X18,X19,X20,X21,X22,X23,
 //             X24,X25,X26,X27,X28,Fp, Lr : DWORD64,
 //         },
 //     },
@@ -181,7 +181,7 @@ capture_stack_trace :: #force_no_inline proc "contextless" (traceBuf: []StackFra
     // skip current frame
     rtFunc := RtlLookupFunctionEntry(ctx.Rip, &fImgBase, nil)
     RtlVirtualUnwind(0, fImgBase, ctx.Rip, rtFunc, &ctx, &handlerData, &establisherFrame, nil)
-    
+
     for count = 0; count < len(traceBuf); count+=1 {
         rtFunc = RtlLookupFunctionEntry(ctx.Rip, &fImgBase, nil)
         if rtFunc == nil do break
@@ -285,7 +285,7 @@ parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool, srcCodeLo
                         }
                         mi.pdbPath = pdbInfo.name
                     }
-                    
+
                     break
                 }
             }
@@ -302,7 +302,7 @@ parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool, srcCodeLo
                 if streamDir, sdOk := find_stream_dir(pdbr); sdOk {
                     mi.streamDir = streamDir
                     pdbSr := get_stream_reader(&mi.streamDir, PdbStream_Index)
-                    pdbHeader, nameMap, pdbFeatures := parse_pdb_stream(&pdbSr)
+                    _, nameMap, _ := parse_pdb_stream(&pdbSr)
                     mi.namesStream = get_stream_reader(&mi.streamDir, find_named_stream(nameMap, NamesStream_Name))
                     mi.dbiData = parse_dbi_stream(&mi.streamDir)
                     mi.ipiStream = get_stream_reader(&mi.streamDir, IpiStream_Index)
@@ -321,7 +321,7 @@ parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool, srcCodeLo
                 offset = funcRva - mi.dbiData.sections[sc.secIdx-1].vAddr,
                 secIdx = sc.secIdx,
             }
-            // address of module's first section contribution in memory. This should 
+            // address of module's first section contribution in memory. This should
             // be unique per module across the whole process, making it usable as
             // hash keys for the mod data map
             mdAddress := stackFrame.imgBaseAddr + uintptr(mi.dbiData.sections[modi.secContrOffset.secIdx-1].vAddr) + uintptr(modi.secContrOffset.offset)
@@ -373,7 +373,7 @@ parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool, srcCodeLo
                             scl.procedure = cvtFuncId.name
                         }
                     }
-                    
+
                     scl.line = i32(lastLine.lineStart + srcLineNum)
                     scl.column = i32(lastLine.colStart)
                     push_front_rb(srcCodeLocs, scl)

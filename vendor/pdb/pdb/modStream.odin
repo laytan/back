@@ -97,7 +97,7 @@ parse_mod_stream :: proc(streamDir: ^StreamDirectory, modi: ^SlimDbiMod) -> (ret
             //log.debugf("[%v:%v] %v", modSr.offset, endOffset, ssh)
             defer modSr.offset = endOffset
             #partial switch ssh.subsectionType {
-            case .Lines: 
+            case .Lines:
                 cBlock := &ret.blocks[lineBlockCount]
                 lineBlockCount+=1
                 ssLines := read_packed(&modSr, CvDbgssLinesHeader)
@@ -109,7 +109,7 @@ parse_mod_stream :: proc(streamDir: ^StreamDirectory, modi: ^SlimDbiMod) -> (ret
                 }
                 for li in 0..<lineBlock.nLines {
                     line := read_packed(&modSr, CvDbgLinePacked)
-                    lns, lne, _ := unpack_lineFlag(line.flags)
+                    lns, _, _ := unpack_lineFlag(line.flags)
                     cBlock.lines[li].offset = line.offset
                     cBlock.lines[li].lineStart = cast(u32le)lns
                 }
@@ -130,7 +130,7 @@ parse_mod_stream :: proc(streamDir: ^StreamDirectory, modi: ^SlimDbiMod) -> (ret
                     islSize = uint(size_of(CvDbgInlineeSrcLineEx))
                 }
                 for modSr.offset < endOffset {
-                    itemEndOffset := modSr.offset + islSize
+                    // itemEndOffset := modSr.offset + islSize
                     isl := read_packed(&modSr, CvDbgInlineeSrcLine)
                     //log.debugf("%v", isl)
                     ret.inlineSrcs[inlineSrcCount] = SlimModInlineSrc{isl.inlinee, isl. fileId, isl.srcLineNum, }
@@ -266,13 +266,13 @@ CvDbgSubsectionHeader :: struct #packed {
 }
 CvDbgSubsectionType :: enum u32 { // DEBUG_S_SUBSECTION_TYPE
     // Native
-    Symbols = 0xf1, 
-    Lines, 
-    StringTable, 
-    FileChecksums, 
-    FrameData, 
-    InlineeLines, 
-    CrossScopeImports, 
+    Symbols = 0xf1,
+    Lines,
+    StringTable,
+    FileChecksums,
+    FrameData,
+    InlineeLines,
+    CrossScopeImports,
     CrossScopeExports,
     // .NET
     IlLines, // seems that this can be parsed by SsLinesHeader as well, need further investigation
