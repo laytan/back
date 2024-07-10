@@ -1,0 +1,20 @@
+{
+    "hide_core": true,
+    "hide_base": true,
+    "collections": {
+        "back": {
+            "name": "back",
+            "source_url": "https://github.com/laytan/back/blob/main",
+            "base_url": "/back",
+            "root_path": "../..",
+            "license": {
+                "text": "MIT",
+                "url": "https://github.com/laytan/back/tree/main/LICENSE"
+            },
+            "home": {
+                "title": "Back",
+                "embed_readme": "../../README.md"
+            }
+        }
+    }
+}
