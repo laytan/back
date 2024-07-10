@@ -94,15 +94,15 @@ lines_destroy :: proc(lines: []Line, allocator := context.allocator) {
 
 assertion_failure_proc :: proc(prefix, message: string, loc: runtime.Source_Code_Location) -> ! {
 	t := trace()
-    lines, err := lines(t.trace[:t.len])
-    if err != nil {
-        fmt.eprintf("could not get backtrace for assertion failure: %v\n", err)
-        runtime.default_assertion_failure_proc(prefix, message, loc)
-    } else {
-        fmt.eprintln("[back trace]")
+	lines, err := lines(t.trace[:t.len])
+	if err != nil {
+		fmt.eprintf("could not get backtrace for assertion failure: %v\n", err)
+		runtime.default_assertion_failure_proc(prefix, message, loc)
+	} else {
+		fmt.eprintln("[back trace]")
 		print(lines)
-        runtime.default_assertion_failure_proc(prefix, message, loc)
-    }
+		runtime.default_assertion_failure_proc(prefix, message, loc)
+	}
 }
 
 register_segfault_handler :: proc() {

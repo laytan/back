@@ -254,7 +254,7 @@ tracking_allocator_print_results :: proc(t: ^Tracking_Allocator, type: Result_Ty
 
 	thread_work := trace_count / extra_threads if extra_threads != 0 else trace_count
 	worked: int
-	for i in 0..<extra_threads {
+	for _ in 0..<extra_threads {
 		thread.run_with_poly_data4(&work, worked, worked + thread_work, &extra_threads_done, thread_proc)
 		worked += thread_work
 	}

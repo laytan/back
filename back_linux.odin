@@ -153,7 +153,7 @@ get_line :: proc(buf: []byte, fp: ^libc.FILE) -> (string, Lines_Error) {
 // Parses the address out of a backtrace line.
 // Example: .../main() [0x100000] -> 0x100000
 parse_address :: proc(msg: cstring) -> (string, Lines_Error) {
-	multi := transmute([^]byte)msg
+	multi := ([^]byte)(msg)
 	msg_len := len(msg)
 	#reverse for c, i in multi[:msg_len] {
 		if c == '[' {
