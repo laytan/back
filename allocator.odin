@@ -192,7 +192,7 @@ tracking_allocator_print_results :: proc(t: ^Tracking_Allocator, type: Result_Ty
 		}
 
 		if type == .Both || type == .Bad_Frees {
-			for bad_free, fi in t.bad_free_array {
+			for bad_free, _ in t.bad_free_array {
 				fmt.eprintf(
 					"\x1b[31m%v allocation %p was freed badly\x1b[0m\n\tCompile with `-debug` to get a back trace\n",
 					bad_free.location,
