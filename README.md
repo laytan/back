@@ -47,8 +47,6 @@ NOTE: this implementation requires at least `-o:minimal` as it requires `#force_
 
 NOTE: the instrumentation features and WASM combination is a bit fragile and seems to only work on `-o:minimal` exclusively, this is almost certainly a codegen bug.
 
-Usage on WASM requires a resolution on these 2 PRs: [#3903](https://github.com/odin-lang/Odin/pull/3903) and [#3904](https://github.com/odin-lang/Odin/pull/3904)
-
 ## Manual
 
 ```odin
