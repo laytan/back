@@ -1,18 +1,20 @@
 //+private file
 package back
 
-import "core:c"
-import "core:c/libc"
-import "core:fmt"
-import "core:os"
-import "core:path/filepath"
-import "core:slice"
-import "core:strings"
-
-foreign import lib "system:c"
+@require import "core:c"
+@require import "core:c/libc"
+@require import "core:fmt"
+@require import "core:os"
+@require import "core:path/filepath"
+@require import "core:slice"
+@require import "core:strings"
 
 ADDR2LINE_PATH := #config(TRACE_ADDR2LINE_PATH, "addr2line")
 PROGRAM        := #config(BACK_PROGRAM, "")
+
+when !USE_FALLBACK {
+
+foreign import lib "system:c"
 
 @(init)
 program_init :: proc() {
@@ -163,3 +165,4 @@ parse_address :: proc(msg: cstring) -> (string, Lines_Error) {
 	return "", .Parse_Address_Fail
 }
 
+}

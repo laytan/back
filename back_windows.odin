@@ -1,13 +1,15 @@
 //+private
 package back
 
-import "core:fmt"
-import "base:runtime"
-import "core:strings"
+@require import     "base:runtime"
 
-import win "core:sys/windows"
+@require import     "core:fmt"
+@require import     "core:strings"
+@require import win "core:sys/windows"
 
-import "vendor/pdb/pdb"
+@require import     "vendor/pdb/pdb"
+
+when !USE_FALLBACK {
 
 _Trace_Entry :: pdb.StackFrame
 
@@ -102,4 +104,6 @@ _register_segfault_handler :: proc() {
 
 		return win.EXCEPTION_CONTINUE_SEARCH
 	})
+}
+
 }

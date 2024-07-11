@@ -1,7 +1,9 @@
 //+private file
 package back
 
-import "core:strings"
+@require import "core:strings"
+
+when !USE_FALLBACK {
 
 foreign import system "system:System.framework"
 
@@ -137,4 +139,6 @@ foreign system {
 	unw_step       :: proc(cursor: ^unw_cursor_t) -> i32 ---
 
 	getpid :: proc() -> pid_t ---
+}
+
 }

@@ -6,7 +6,22 @@ import "core:os"
 import "base:runtime"
 import "core:text/table"
 
+// Size of a constant backtrace, as used by the allocator for example.
 BACKTRACE_SIZE :: #config(BACKTRACE_SIZE, 16)
+
+// For targets that do not have native support (using debug info),
+// backtraces are done through instrumentation, Odin only allows one enter/exit instrumentation
+// procedure though, so you can set this to true, add your own instrumentation procs, and have
+// them call `back.other_instrumentation_enter` and `back.other_instrumentation_exit` to hook
+// up the backtraces.
+//
+// The custom proc must have `#force_inline`.
+OTHER_CUSTOM_INSTRUMENTATION :: #config(BACK_OTHER_CUSTOM_INSTRUMENTATION, false)
+
+// Force the fallback instrumentation based implementation instead of debug info based.
+FORCE_FALLBACK :: #config(BACK_FORCE_FALLBACK, false)
+
+USE_FALLBACK :: FORCE_FALLBACK || (ODIN_OS != .Darwin && ODIN_OS != .Linux && ODIN_OS != .Windows)
 
 Trace :: []Trace_Entry
 
@@ -23,12 +38,12 @@ Line :: struct {
 	symbol:   string,
 }
 
-EAGAIN :: os.EAGAIN when ODIN_OS != .Windows else 5
-ENOMEM :: os.ENOMEM when ODIN_OS != .Windows else 6
-EFAULT :: os.EFAULT when ODIN_OS != .Windows else 7
-EMFILE :: os.EMFILE when ODIN_OS != .Windows else 8
-ENFILE :: os.ENFILE when ODIN_OS != .Windows else 9
-ENOSYS :: os.ENOSYS when ODIN_OS != .Windows else 10
+EAGAIN :: os.EAGAIN when ODIN_OS == .Linux || ODIN_OS == .Darwin else 5
+ENOMEM :: os.ENOMEM when ODIN_OS == .Linux || ODIN_OS == .Darwin else 6
+EFAULT :: os.EFAULT when ODIN_OS == .Linux || ODIN_OS == .Darwin else 7
+EMFILE :: os.EMFILE when ODIN_OS == .Linux || ODIN_OS == .Darwin else 8
+ENFILE :: os.ENFILE when ODIN_OS == .Linux || ODIN_OS == .Darwin else 9
+ENOSYS :: os.ENOSYS when ODIN_OS == .Linux || ODIN_OS == .Darwin else 10
 
 Lines_Error :: enum {
 	None,

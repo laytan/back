@@ -1,5 +1,7 @@
 package back
 
+import "base:intrinsics"
+
 import "core:fmt"
 import "core:mem"
 import "core:os"
@@ -184,6 +186,8 @@ Result_Type :: enum {
 }
 
 tracking_allocator_print_results :: proc(t: ^Tracking_Allocator, type: Result_Type = .Both) {
+	context.allocator = t.internals_allocator
+
 	when ODIN_OS == .Windows && !ODIN_DEBUG {
 		if type == .Both || type == .Leaks {
 			for _, leak in t.allocation_map {
@@ -203,7 +207,48 @@ tracking_allocator_print_results :: proc(t: ^Tracking_Allocator, type: Result_Ty
 		return
 	}
 
-	context.allocator = t.internals_allocator
+	// WASM without threading/atomics.
+	when (ODIN_ARCH == .wasm32 || ODIN_ARCH == .wasm64p32) && !intrinsics.has_target_feature("atomics") {
+		if type == .Both || type == .Leaks {
+			for _, leak in t.allocation_map {
+				trace, err := lines(leak.backtrace)
+				defer lines_destroy(trace)
+
+				fmt.eprintf("\x1b[31m%v leaked %m\x1b[0m\n", leak.location, leak.size)
+				fmt.eprintln("[back trace]")
+
+				if err != nil {
+					fmt.eprintf("backtrace error: %v\n", err)
+					continue
+				}
+
+				print(trace)
+				fmt.eprintln()
+			}
+		}
+
+		if type == .Both || type == .Bad_Frees {
+			for bad_free, _ in t.bad_free_array {
+				trace, err := lines(bad_free.backtrace)
+				defer lines_destroy(trace)
+
+				fmt.eprintf(
+					"\x1b[31m%v allocation %p was freed badly\x1b[0m\n",
+					bad_free.location,
+					bad_free.memory,
+				)
+				fmt.eprintln("[back trace]")
+
+				if err != nil {
+					fmt.eprintf("backtrace error: %v\n", err)
+					continue
+				}
+
+				print(trace)
+			}
+		}
+		return
+	}
 
 	Work :: struct {
 		trace:   Trace_Const,

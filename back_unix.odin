@@ -6,6 +6,7 @@ import "core:fmt"
 import "core:os"
 import "base:runtime"
 
+@(private="package")
 _register_segfault_handler :: proc() {
 	libc.signal(libc.SIGSEGV, proc "c" (code: i32) {
 		context = runtime.default_context()

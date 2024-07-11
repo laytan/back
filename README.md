@@ -1,17 +1,32 @@
 # Back
 
-Backtraces for Odin on the major platforms (MacOS, Linux, Windows).
+Backtraces for Odin, see examples below and in the examples folder.
+
+To change the size (amount of stackframes to print) in places where this can't be set directly, you can use the `-define:BACKTRACE_SIZE=16`.
+
+## Targets
+
+### Windows, MacoOS & Linux
+
+These targets use debug information that's added by compiling with `-debug` to provide traces and give rough information when compiled without it.
+
+Performance is not impacted at all during normal running, just when you ask for a trace or lines.
+
+Per platform notes below:
+
+#### Windows
 
 For Windows support, all credit goes to [DaseinPhaos/pdb](https://github.com/DaseinPhaos/pdb).
 
+Windows is not able to get *any* information when not compiled with `-debug`.
+
 NOTE: The pdb package allocates a lot of stuff and does not really provide a way of deleting the allocations, so, before calling into the package, this package sets it to use the `context.temporary_allocator`.
 
-In debug mode, the `back.lines` will try to use the debug information to get source files and line numbers.
-When not in debug mode, you will get greatly reduced information.
+#### MacOS
 
-## Installation
+Uses a private framework for symbolication, and thus will not get through Apple's review process.
 
-Back does not use any libraries or external dependencies not pre-installed on the OS.
+#### Linux
 
 On Linux, the `addr2line` command is invoked, which comes pre-installed (maybe in binutils).
 
@@ -20,7 +35,19 @@ The `addr2line` command can be changed by setting the `-define:BACK_ADDR2LINE_PA
 The path to the running binary is also needed for this command, this is `os.args[0]` by default and to my knowledge is always correct.
 Nevertheless it can be changed with the `-define:BACK_PROGRAM=path/to/binary` flag.
 
-To change the size (amount of stackframes to print) in places where this can't be set directly, you can use the `-define:BACKTRACE_SIZE=16`.
+I am planning on rewriting this implementation to not require an external command like this by parsing the DWARF debug information manually.
+
+### Others
+
+Other targets use the instrumentation features of Odin to keep track of stack frames, this has a minimal impact on performance and size.
+
+Forcing the instrumentation based implementation on Windows, Linux and Darwin can be done with `-define:BACK_FORCE_FALLBACK=true`.
+
+NOTE: this implementation requires at least `-o:minimal` as it requires `#force_inline` procs to actually be inlined, this is not the case with `-o:none`.
+
+NOTE: the instrumentation features and WASM combination is a bit fragile and seems to only work on `-o:minimal` exclusively, this is almost certainly a codegen bug.
+
+Usage on WASM requires a resolution on these 2 PRs: [#3903](https://github.com/odin-lang/Odin/pull/3903) and [#3904](https://github.com/odin-lang/Odin/pull/3904)
 
 ## Manual
 
