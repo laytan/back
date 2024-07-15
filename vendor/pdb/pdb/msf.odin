@@ -140,37 +140,24 @@ make_reader_from_indiced_buf :: proc(r: io.Reader, indices: []u32le, blockSize: 
 }
 
 @private
-_can_read_packed :: proc ($T: typeid) -> bool {
-    if intrinsics.type_is_struct(T) {
-        bti := runtime.type_info_base(type_info_of(T))
-        ti, ok := bti.variant.(runtime.Type_Info_Struct)
-        if !ok do return false
-        return ti.is_packed
-    }
-    return true
+_can_read_packed :: #force_inline proc($T: typeid) -> bool {
+	when intrinsics.type_is_struct(T) {
+		return !intrinsics.type_struct_has_implicit_padding(T)
+	}
+	return true
 }
 
 MsfNotPackedMarker :: struct {} // we use this marker to bypass the lacking of `intrinsics.is_struct_packed()` in certain cases
 
 read_packed_from_stream :: #force_inline proc(r: io.Stream, $T: typeid) -> (ret:T, err:io.Error) {
-    when ODIN_DEBUG==true {
-        if (!_can_read_packed(T))  {
-            log.errorf("Invalid type: %v", type_info_of(T).variant)
-            assert(false)
-        }
-    }
+	log.assertf(_can_read_packed(T), "Invalid type: %v", typeid_of(T))
     buf := transmute([]byte)mem.Raw_Slice{&ret, size_of(T),}
     io.read(r, buf) or_return
     return ret, err
 }
 
 read_packed_array :: proc(using this: ^BlocksReader, count: uint, $T: typeid) -> (ret: []T) {
-    when ODIN_DEBUG==true {
-        if (!_can_read_packed(T))  {
-            log.errorf("Invalid type: %v", type_info_of(T).variant)
-            assert(false)
-        }
-    }
+	log.assertf(_can_read_packed(T), "Invalid type: %v", typeid_of(T))
     endOffset := offset + count * size_of(T)
     assert(endOffset <= this.size)
     defer offset = endOffset
@@ -180,12 +167,7 @@ read_packed_array :: proc(using this: ^BlocksReader, count: uint, $T: typeid) ->
 read_packed :: #force_inline proc(using this: ^BlocksReader, $T: typeid) -> (ret: T)
     where !intrinsics.type_has_field(T, "_base"),
           !intrinsics.type_is_subtype_of(T, MsfNotPackedMarker) {
-        when ODIN_DEBUG==true {
-            if (!_can_read_packed(T))  {
-                log.errorf("Invalid type: %v", type_info_of(T).variant)
-                assert(false)
-            }
-        }
+		log.assertf(_can_read_packed(T), "Invalid type: %v", typeid_of(T))
         tsize := size_of(T)
         assert(size == 0 || offset + uint(tsize) <= size, "block overflow")
         pret := cast(^byte)&ret
