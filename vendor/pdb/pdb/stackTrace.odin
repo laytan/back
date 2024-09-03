@@ -249,7 +249,7 @@ parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool, srcCodeLo
             }
             mi.filePath = path
             peFile, peFileErr := os.open(mi.filePath)
-            if peFileErr != 0 {
+            if peFileErr != nil {
                 // skip images that we cannot open
                 continue
             }
@@ -291,12 +291,12 @@ parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool, srcCodeLo
             }
             // TODO: if pdbPath is still not found by now, we should look into other possible directories for them
             pdbFile, pdbErr := os.open(mi.pdbPath)
-            if pdbErr != 0 { // try load pdb at the same path as src exe
+            if pdbErr != nil { // try load pdb at the same path as src exe
                 toConcatenate := []string {filepath.stem(mi.filePath), ".pdb"}
                 mi.pdbPath = strings.concatenate(toConcatenate)
                 pdbFile, pdbErr = os.open(mi.pdbPath)
             }
-            if pdbErr == 0 {
+            if pdbErr == nil {
                 mi.pdbHandle = pdbFile
                 pdbr := io.to_reader(os.stream_from_handle(pdbFile))
                 if streamDir, sdOk := find_stream_dir(pdbr); sdOk {
