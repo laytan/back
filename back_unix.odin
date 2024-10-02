@@ -1,4 +1,4 @@
-//+build linux, darwin
+#+build linux, darwin
 package back
 
 import "core:c/libc"

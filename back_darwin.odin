@@ -1,4 +1,4 @@
-//+private file
+#+private file
 package back
 
 @require import "core:strings"

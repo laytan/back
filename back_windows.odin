@@ -1,4 +1,4 @@
-//+private
+#+private
 package back
 
 @require import     "base:runtime"
