@@ -200,10 +200,10 @@ SlimDbiData :: struct {
 }
 @private
 _cmp_sc :: #force_inline proc(l, r: SlimDbiSecContr) -> int {
-    if l.secIdx < r.secIdx do return -1
-    else if l.secIdx > r.secIdx do return 1
-    else if l.offset < r.offset do return -1
-    else if l.offset > r.offset do return 1
+    if l.secIdx < r.secIdx { return -1 }
+    else if l.secIdx > r.secIdx { return 1 }
+    else if l.offset < r.offset { return -1 }
+    else if l.offset > r.offset { return 1 }
     return 0
 }
 search_for_section_contribution :: proc(using this: ^SlimDbiData, imgRva : u32le) -> (sci : int) {
@@ -217,12 +217,12 @@ search_for_section_contribution :: proc(using this: ^SlimDbiData, imgRva : u32le
             break
         }
     }
-    if sectionIdx == -1 do return -1
+    if sectionIdx == -1 { return -1 }
     // bisearch for module
     ti := SlimDbiSecContr{PESectionOffset{offsetInSection, u16le(sectionIdx+1),}, 0}
     lo, hi := 0, (len(contributions)-1)
-    if hi < 0 || _cmp_sc(ti, contributions[lo]) < 0 do return -1
-    if _cmp_sc(contributions[hi], ti) < 0 do return int(hi)
+    if hi < 0 || _cmp_sc(ti, contributions[lo]) < 0 { return -1 }
+    if _cmp_sc(contributions[hi], ti) < 0 { return int(hi) }
     // ti in range, do a bisearch
     for lo <= hi {
         mid := lo + ((hi-lo)>>1)
@@ -236,7 +236,7 @@ search_for_section_contribution :: proc(using this: ^SlimDbiData, imgRva : u32le
 			lo = mid + 1
 		}
     }
-    if lo > 0 do lo -= 1
+    if lo > 0 { lo -= 1 }
     return int(lo)
 }
 
@@ -315,7 +315,7 @@ parse_dbi_stream :: proc(streamDir: ^StreamDirectory) -> (ret : SlimDbiData) {
             baseOffset := this.offset
             defer this.offset = baseOffset + cast(uint)secContrEntrySize
             secContr := read_packed(this, DbiSectionContribution)
-            if secContr.size == 0 do continue
+            if secContr.size == 0 { continue }
             //log.debug(secContr)
             assert(secContr.section > lastItem.secIdx || secContr.offset > lastItem.offset)
             if secContr.section != lastItem.secIdx || secContr.moduleIndex != lastItem.module {

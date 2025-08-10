@@ -31,7 +31,7 @@ get_kv_at :: proc(using this: ^PdbHashTable($T), at: u32le) -> (ret:PdbHashTable
 get_bit :: proc(using this: ^BitVector, at: u32le) -> bool {
     ELEMENT_PER_WORD :: 32
     wi := at / ELEMENT_PER_WORD
-    if int(wi) >= len(words) do return false
+    if int(wi) >= len(words) { return false }
     word := words[uint(wi)]
     iiw := at - (wi * ELEMENT_PER_WORD)
     return (word & (1 << iiw)) != 0

@@ -204,18 +204,18 @@ read_length_prefixed_name :: proc(this: ^BlocksReader) -> (ret: string) {
     //nameLen := cast(int)readv(this, u8) //? this is a fucking lie?
     nameLen :int = 0
     for i in this.offset..<this.size {
-        if this.data[i] == 0 do break
+        if this.data[i] == 0 { break }
         nameLen+=1
     }
     defer this.offset+=uint(nameLen+1) // eat trailing \0 as well
-    if nameLen == 0 do return ""
+    if nameLen == 0 { return "" }
     return strings.string_from_ptr(&this.data[this.offset], nameLen)
 }
 
 @private
 ceil_div :: #force_inline proc(a: u32le, b: u32le) -> u32le {
     ret := a / b
-    if b * ret != a do ret += 1
+    if b * ret != a { ret += 1 }
     return ret
 }
 
@@ -333,12 +333,12 @@ get_ptr_rb :: proc "contextless"(q: ^$Q/RingBuffer($T), #any_int i: int, loc := 
 push_back_rb :: proc "contextless"(q: ^$Q/RingBuffer($T), elem: T) -> bool {
 	idx := (q.offset+uint(q.len))%len(q.data)
 	q.data[idx] = elem
-	if q.len < len(q.data) do q.len += 1
+	if q.len < len(q.data) { q.len += 1 }
 	return true
 }
 push_front_rb :: proc "contextless"(q: ^$Q/RingBuffer($T), elem: T) -> bool {
 	q.offset = uint(q.offset - 1 + len(q.data)) % len(q.data)
-	if q.len < len(q.data) do q.len += 1
+	if q.len < len(q.data) { q.len += 1 }
 	q.data[q.offset] = elem
 	return true
 }
@@ -346,12 +346,12 @@ push_front_rb :: proc "contextless"(q: ^$Q/RingBuffer($T), elem: T) -> bool {
 binary_search_min_ge :: proc(buf: []$T, value: $V, cmp: proc(v: V, t: ^T) -> int) -> int {
     lb := 0
     hb := len(buf)-1
-    if hb < lb do return lb
-    if cmp(value, &buf[hb]) > 0 do return hb+1
+    if hb < lb { return lb }
+    if cmp(value, &buf[hb]) > 0 { return hb+1 }
     for lb < hb {
         mid := lb + ((hb-lb)>>1)
-        if cmp(value, &buf[mid]) > 0 do lb = mid + 1
-        else do hb = mid
+        if cmp(value, &buf[mid]) > 0 { lb = mid + 1 }
+        else { hb = mid }
     }
     return lb
 }
