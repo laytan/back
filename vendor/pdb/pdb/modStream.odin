@@ -51,10 +51,10 @@ parse_mod_stream :: proc(streamDir: ^StreamDirectory, modi: ^SlimDbiMod) -> (ret
             // sort inline sites by pParent, pEnd
             // this allows us to do binary search on pParent to quickly narrow the range of sites needed for checking
             slice.sort_by(ret.inlineSites, proc(a, b: SlimCvsInlineSite)->bool {
-                if a.pParent < b.pParent do return true
-                else if a.pParent > b.pParent do return false
-                else if a.pEnd < b.pEnd do return true
-                else do return false
+                if a.pParent < b.pParent { return true }
+                else if a.pParent > b.pParent { return false }
+                else if a.pEnd < b.pEnd { return true }
+                else { return false }
             })
         }
     }
@@ -216,7 +216,7 @@ locate_pc :: proc(using data: ^SlimModData, func: PESectionOffset,  pcFromFunc: 
         // ?bisearch?
         for i in 1..<len(lb.lines) {
             cl := &lb.lines[i]
-            if cl.offset > pcFromFunc do break
+            if cl.offset > pcFromFunc { break }
             line = cl
         }
         return
@@ -228,12 +228,12 @@ locate_inline_site:: proc(using data: ^SlimModData, pParent: CvsOffset, pcFromFu
     // bisearch on a sorted acceleration structure
     iStart := binary_search_min_ge(inlineSites, pParent, proc(v: CvsOffset, t: ^SlimCvsInlineSite) -> int {
         //log.debugf("Comparing %v with %v", v, t.pParent)
-        if v < t.pParent do return -1
-        else if v > t.pParent do return 1
-        else do return 0
+        if v < t.pParent { return -1 }
+        else if v > t.pParent { return 1 }
+        else { return 0 }
     })
     for i in iStart..<len(inlineSites) {
-        if inlineSites[i].pParent != pParent do break
+        if inlineSites[i].pParent != pParent { break }
         found := false
         for iline in inlineSites[i].lines {
             if iline.end > pcFromFunc && iline.offset <= pcFromFunc {
@@ -242,14 +242,14 @@ locate_inline_site:: proc(using data: ^SlimModData, pParent: CvsOffset, pcFromFu
                 break
             }
         }
-        if found do break
+        if found { break }
     }
-    if site == nil do return
+    if site == nil { return }
 
     iSite := binary_search_min_ge(inlineSrcs, site.inlinee, proc(v: CvItemId, t: ^SlimModInlineSrc) -> int {
-        if v < t.inlinee do return -1
-        else if v > t.inlinee do return 1
-        else do return 0
+        if v < t.inlinee { return -1 }
+        else if v > t.inlinee { return 1 }
+        else { return 0 }
     })
     if iSite < len(inlineSrcs) && inlineSrcs[iSite].inlinee == site.inlinee {
         src = &inlineSrcs[iSite]
@@ -311,7 +311,7 @@ unpack_lineFlag :: proc(this: CvDbgLinePackedFlags) -> (lineNumStart:u32, lineNu
     lineNumStart = u32(this & 0xff_ffff)
     dLineEnd := (u32(this) & (0x7f00_0000)) >> 24 // this has been a truncation instead of delta
     lineNumEnd = (lineNumStart & 0x7f) | dLineEnd
-    if lineNumEnd < lineNumStart do lineNumEnd += 1 << 7
+    if lineNumEnd < lineNumStart { lineNumEnd += 1 << 7 }
     isStatement = (this & 0x8000_0000) != 0
     return
 }
@@ -350,4 +350,3 @@ CvDbgFileChecksumHeader :: struct #packed {
 CvDbgFileChecksumKind :: enum u8 {none, md5, sha1, sha256, }
 
 // TODO: StringTable, FrameData, CrossScopeImports, CrossScopeExports etc
-

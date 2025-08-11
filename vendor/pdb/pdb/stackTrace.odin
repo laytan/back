@@ -184,7 +184,7 @@ capture_stack_trace :: #force_no_inline proc "contextless" (traceBuf: []StackFra
 
     for count = 0; count < len(traceBuf); count+=1 {
         rtFunc = RtlLookupFunctionEntry(ctx.Rip, &fImgBase, nil)
-        if rtFunc == nil do break
+        if rtFunc == nil { break }
         pst := &traceBuf[count]
         pst.progCounter = cast(uintptr)ctx.Rip
         pst.imgBaseAddr = cast(uintptr)fImgBase
@@ -201,7 +201,7 @@ capture_stack_trace_from_context :: proc "contextless" (ctx: ^CONTEXT, traceBuf:
     establisherFrame : DWORD64
     for count = 0; count < len(traceBuf); count+=1 {
         rtFunc := RtlLookupFunctionEntry(ctx.Rip, &fImgBase, nil)
-        if rtFunc == nil do break
+        if rtFunc == nil { break }
         pst := &traceBuf[count]
         pst.progCounter = cast(uintptr)ctx.Rip
         pst.imgBaseAddr = cast(uintptr)fImgBase
@@ -261,17 +261,17 @@ parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool, srcCodeLo
                     int(dataDirs.debug.size / size_of(PEDebugDirEntry)),
                 )
                 for dde in ddEntrys {
-                    if dde.debugType != .CodeView do continue
+                    if dde.debugType != .CodeView { continue }
                     if sameProcess {
                         // image is supposed to beloaded, we can just look at the struct in memory
                         pPdbBase := (^PECodeViewInfoPdb70Base)((stackFrame.imgBaseAddr) + uintptr(dde.rawDataAddr))
-                        if pPdbBase.cvSignature != PECodeView_Signature_RSDS do continue
+                        if pPdbBase.cvSignature != PECodeView_Signature_RSDS { continue }
                         pPdbPath := (^byte)(uintptr(pPdbBase) + cast(uintptr)size_of(PECodeViewInfoPdb70Base))
                         mi.pdbPath = strings.string_from_null_terminated_ptr(pPdbPath, int(dde.dataSize-size_of(PECodeViewInfoPdb70Base)))
                     } else {
                         // otherwise we need to seek to it on disk
                         peStream := os.stream_from_handle(peFile)
-                        if n, err := io.seek(peStream, i64(dde.pRawData), .Start); err != nil || n != i64(dde.pRawData) do continue
+                        if n, err := io.seek(peStream, i64(dde.pRawData), .Start); err != nil || n != i64(dde.pRawData) { continue }
                         buf := make([]byte, int(dde.dataSize))
                         if n, err := io.read(peStream, buf[:]); err != nil || n != len(buf) {
                             delete(buf)
@@ -359,7 +359,7 @@ parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool, srcCodeLo
                     }
                     lastLine := inlineSite.lines[0]
                     for iline in inlineSite.lines {
-                        if iline.offset > pcFromFunc do break
+                        if iline.offset > pcFromFunc { break }
                         lastLine = iline
                     }
 

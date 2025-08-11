@@ -328,7 +328,7 @@ tracking_allocator_print_results :: proc(t: ^Tracking_Allocator, type: Result_Ty
 			fmt.eprintln()
 		}
 
-		if len(t.bad_free_array) > 0 do fmt.eprintln()
+		if len(t.bad_free_array) > 0 { fmt.eprintln() }
 	}
 
 	if type == .Both || type == .Bad_Frees {
@@ -349,7 +349,7 @@ tracking_allocator_print_results :: proc(t: ^Tracking_Allocator, type: Result_Ty
 
 			print(work_free.result)
 
-			if fi + 1 < len(t.bad_free_array) do fmt.eprintln()
+			if fi + 1 < len(t.bad_free_array) { fmt.eprintln() }
 		}
 	}
 }

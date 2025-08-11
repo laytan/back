@@ -169,7 +169,7 @@ CvsThunk32 :: struct {
 }
 CvsThunkOrdinal :: enum u8 {
     NoType,
-    Adjustor, 
+    Adjustor,
     VirtCall,
     PCode,
     Load,
@@ -231,7 +231,7 @@ CvsProc32 :: struct {
     name        : string,
 }
 // TODO: CV_PROCFLAGS
-CvsProcFlags :: distinct u8 
+CvsProcFlags :: distinct u8
 
 // S_REGREL32
 CvsRegRel32 :: struct {
@@ -509,16 +509,16 @@ parse_binary_annotation :: proc(using this: ^BlocksReader, blockEnd: uint) -> (r
 }
 uncompress_binary_annonation :: proc(using this: ^BlocksReader) -> u32le {
     b1 := u32le(read_packed(this, u8))
-    if (b1 & 0x80) == 0 do return b1
+    if (b1 & 0x80) == 0 { return b1 }
     b2 := u32le(read_packed(this, u8))
-    if (b1 & 0xc0) == 0x80 do return ((b1 & 0x3f) << 8) | b2
+    if (b1 & 0xc0) == 0x80 { return ((b1 & 0x3f) << 8) | b2 }
     b3 := u32le(read_packed(this, u8))
     b4 := u32le(read_packed(this, u8))
     return ((b1 & 0x1f) << 24) | (b2 << 16) | (b3 << 8) | b4
 }
 uncompress_binary_annonation_signed :: proc(using this: ^BlocksReader) -> i32le {
     u := uncompress_binary_annonation(this)
-    if (u&1) != 0 do return -i32le(u>>1)
+    if (u&1) != 0 { return -i32le(u>>1) }
     return i32le(u>>1)
 }
 
@@ -630,9 +630,9 @@ CvsDefRangeRegisterRel :: struct {
 // offsetParent|pad|spilledUdtMember
 CvsDefRangeRegisterRelFlags :: distinct u16le
 
-read_with_trailing_rag :: #force_inline proc(this: ^BlocksReader, recLen: u16le, $T : typeid) -> (ret: T) 
+read_with_trailing_rag :: #force_inline proc(this: ^BlocksReader, recLen: u16le, $T : typeid) -> (ret: T)
     where intrinsics.type_has_field(T, "_base"),
-          intrinsics.type_has_field(T, "_rag"), 
+          intrinsics.type_has_field(T, "_rag"),
           intrinsics.type_field_index_of(T, "_rag") == 1,
           intrinsics.type_struct_field_count(T) == 2 {
     ret._base = read_packed(this, type_of(ret._base))
@@ -656,7 +656,7 @@ read_cvsLvarAddrRangeAndGap :: proc (this: ^BlocksReader, recLen : u16le, headLe
     ret.range = read_packed(this, type_of(ret.range))
     gapsSize := int(recLen) - size_of(CvsRecordKind) - headLen - size_of(ret.range)
     gapsCount := gapsSize / size_of(CvsLvarAddrGap)
-    if gapsCount <= 0 do return
+    if gapsCount <= 0 { return }
     ret.gaps = read_packed_array(this, uint(gapsCount), CvsLvarAddrGap)
     return
 }

@@ -16,7 +16,7 @@ CoffFileHeader :: struct #packed {
     pSymTable   : u32le, // offset to COFF symbol table 0 if not presented
     numSyms     : u32le,
     optHdrSize  : u16le, // size of optional header following this
-    charas      : PECharacteristics, 
+    charas      : PECharacteristics,
 }
 PEMachineType :: enum u16le { // IMAGE_FILE_MACHINE_xx
     Unknown = 0x0, // assumed to be applicable to any machine type
@@ -116,7 +116,7 @@ _PEOptHdr_WinImpl :: struct($T: typeid) #packed {
 }
 PEWinSubsystem :: enum u16le {
     Unknown = 0, Native = 1, WinGUI = 2, WinCUI = 3, OS2CUI = 5, PosixCUI = 7,
-    NativeWin9x = 8, WinCEGUI = 9, EFIApp = 10, EFIServiceDriver = 11, 
+    NativeWin9x = 8, WinCEGUI = 9, EFIApp = 10, EFIServiceDriver = 11,
     EFIRuntimeDriver = 12, EFIRom = 13, Xbox = 14, WinBootApp = 16,
 }
 PEDllCharacteristics :: enum u16le {
@@ -150,7 +150,7 @@ PEOptHdr_DataDirectories :: struct #packed {
     iat, // import address table
     delayLoadImport, // delay-load import tables
     clrRuntime, // clr runtime headers
-    _reserved: PEOptHdr_DataDirectory, 
+    _reserved: PEOptHdr_DataDirectory,
 }
 // RVA: address of the table relative to image base address after loaded
 PEOptHdr_DataDirectory :: struct #packed { rva, size: u32le, }
@@ -173,7 +173,7 @@ peSectionName_formatter :: proc(fi: ^fmt.Info, arg: any, verb: rune) -> bool {
     n := arg.(PESectionName)
     io.write_rune(fi.writer, '"', &fi.n)
     for i in 0..<len(n.buf) {
-        if n.buf[i] == 0 do break
+        if n.buf[i] == 0 { break }
         io.write_rune(fi.writer, rune(n.buf[i]), &fi.n)
     }
     io.write_string(fi.writer, "\"(0x", &fi.n)
@@ -266,7 +266,7 @@ parse_pe_data_dirs :: proc(r: io.Stream) -> (ret : PEOptHdr_DataDirectories, err
     peSigOffset := read_packed_from_stream(r, u32le) or_return
     io.seek(r, i64(peSigOffset), .Start) or_return
     PEPlusDataDirEnd :: size_of(u32le) + size_of(CoffFileHeader) + size_of(PEOptHdrMagic) + size_of(PEOptHdrPlus) + size_of(PEOptHdr_DataDirectories)
-    
+
     buf :[PEPlusDataDirEnd]byte
     io.read(r, buf[:]) or_return
     br := make_dummy_reader(buf[:])
@@ -309,4 +309,3 @@ read_pe_headers :: proc(this: ^BlocksReader) -> (coffHdr : CoffFileHeader, optHd
     }
     return
 }
-

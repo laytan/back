@@ -45,7 +45,7 @@ _lines_destroy :: proc(msgs: []Line) {
 		delete(msg.location)
 
 		when ODIN_DEBUG {
-			if msg.symbol != "" && msg.symbol != "??" do delete(msg.symbol)
+			if msg.symbol != "" && msg.symbol != "??" { delete(msg.symbol) }
 		}
 	}
 	delete(msgs)
