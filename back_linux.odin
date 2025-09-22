@@ -17,7 +17,8 @@ when !USE_FALLBACK {
 foreign import lib "system:c"
 
 @(init)
-program_init :: proc() {
+program_init :: proc "contextless" () {
+	context = runtime.default_context()
 	if PROGRAM == "" {
 		PROGRAM = os.args[0]
 		if !filepath.is_abs(PROGRAM) {
