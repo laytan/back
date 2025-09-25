@@ -8,6 +8,7 @@ package back
 @require import "core:path/filepath"
 @require import "core:slice"
 @require import "core:strings"
+@require import "base:runtime"
 
 ADDR2LINE_PATH := #config(TRACE_ADDR2LINE_PATH, "addr2line")
 PROGRAM        := #config(BACK_PROGRAM, "")
