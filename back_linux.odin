@@ -8,6 +8,7 @@ package back
 @require import "core:path/filepath"
 @require import "core:slice"
 @require import "core:strings"
+@require import "base:runtime"
 
 ADDR2LINE_PATH := #config(TRACE_ADDR2LINE_PATH, "addr2line")
 PROGRAM        := #config(BACK_PROGRAM, "")
@@ -17,7 +18,8 @@ when !USE_FALLBACK {
 foreign import lib "system:c"
 
 @(init)
-program_init :: proc() {
+program_init :: proc "contextless" () {
+	context = runtime.default_context()
 	if PROGRAM == "" {
 		PROGRAM = os.args[0]
 		if !filepath.is_abs(PROGRAM) {
