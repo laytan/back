@@ -5,6 +5,7 @@ import "core:io"
 import "core:os"
 import "base:runtime"
 import "core:text/table"
+@(require) import "core:sys/posix"
 
 // Size of a constant backtrace, as used by the allocator for example.
 BACKTRACE_SIZE :: #config(BACKTRACE_SIZE, 16)
@@ -38,12 +39,12 @@ Line :: struct {
 	symbol:   string,
 }
 
-EAGAIN :: os.EAGAIN when ODIN_OS == .Linux || ODIN_OS == .Darwin else 5
-ENOMEM :: os.ENOMEM when ODIN_OS == .Linux || ODIN_OS == .Darwin else 6
-EFAULT :: os.EFAULT when ODIN_OS == .Linux || ODIN_OS == .Darwin else 7
-EMFILE :: os.EMFILE when ODIN_OS == .Linux || ODIN_OS == .Darwin else 8
-ENFILE :: os.ENFILE when ODIN_OS == .Linux || ODIN_OS == .Darwin else 9
-ENOSYS :: os.ENOSYS when ODIN_OS == .Linux || ODIN_OS == .Darwin else 10
+EAGAIN :: posix.EAGAIN when ODIN_OS == .Linux || ODIN_OS == .Darwin else 5
+ENOMEM :: posix.ENOMEM when ODIN_OS == .Linux || ODIN_OS == .Darwin else 6
+EFAULT :: posix.EFAULT when ODIN_OS == .Linux || ODIN_OS == .Darwin else 7
+EMFILE :: posix.EMFILE when ODIN_OS == .Linux || ODIN_OS == .Darwin else 8
+ENFILE :: posix.ENFILE when ODIN_OS == .Linux || ODIN_OS == .Darwin else 9
+ENOSYS :: posix.ENOSYS when ODIN_OS == .Linux || ODIN_OS == .Darwin else 10
 
 Lines_Error :: enum {
 	None,
@@ -125,7 +126,7 @@ register_segfault_handler :: proc() {
 }
 
 print :: proc(lines: []Line, padding := "    ", w: Maybe(io.Writer) = nil, no_temp_guard := false) {
-	w := w.? or_else os.stream_from_handle(os.stderr)
+	w := w.? or_else os.to_writer(os.stderr)
 
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD(ignore=no_temp_guard)
 

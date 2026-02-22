@@ -23,7 +23,7 @@ program_init :: proc "contextless" () {
 	if PROGRAM == "" {
 		PROGRAM = os.args[0]
 		if !filepath.is_abs(PROGRAM) {
-			if abs, ok := filepath.abs(PROGRAM); ok {
+			if abs, err := filepath.abs(PROGRAM, context.allocator); err == nil {
 				PROGRAM = abs
 			} else {
 				fmt.eprintln("back: could not convert `os.args[0]` to an absolute path")
