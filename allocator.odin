@@ -284,7 +284,7 @@ tracking_allocator_print_results :: proc(t: ^Tracking_Allocator, type: Result_Ty
 		}
 	}
 
-	extra_threads := max(0, min(os.processor_core_count() - 1, trace_count - 1))
+	extra_threads := max(0, min(os.get_processor_core_count() - 1, trace_count - 1))
 	extra_threads_done: sync.Wait_Group
 	sync.wait_group_add(&extra_threads_done, extra_threads + 1)
 
