@@ -215,7 +215,7 @@ capture_stack_trace_from_context :: proc "contextless" (ctx: ^CONTEXT, traceBuf:
 _PEModuleInfo :: struct {
     filePath     : string,
     pdbPath      : string,
-    pdbHandle    : os.Handle,
+    pdbHandle    : ^os.File,
     streamDir    : StreamDirectory,
     namesStream  : BlocksReader,
     dbiData      : SlimDbiData,
@@ -254,7 +254,7 @@ parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool, srcCodeLo
                 continue
             }
             defer os.close(peFile)
-            dataDirs, dde := parse_pe_data_dirs(os.stream_from_handle(peFile))
+            dataDirs, dde := parse_pe_data_dirs(os.to_stream(peFile))
             if dataDirs.debug.size > 0 && dde == nil {
                 ddEntrys := slice.from_ptr(
                     (^PEDebugDirEntry)((stackFrame.imgBaseAddr) + uintptr(dataDirs.debug.rva)),
@@ -270,7 +270,7 @@ parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool, srcCodeLo
                         mi.pdbPath = strings.string_from_null_terminated_ptr(pPdbPath, int(dde.dataSize-size_of(PECodeViewInfoPdb70Base)))
                     } else {
                         // otherwise we need to seek to it on disk
-                        peStream := os.stream_from_handle(peFile)
+                        peStream := os.to_stream(peFile)
                         if n, err := io.seek(peStream, i64(dde.pRawData), .Start); err != nil || n != i64(dde.pRawData) { continue }
                         buf := make([]byte, int(dde.dataSize))
                         if n, err := io.read(peStream, buf[:]); err != nil || n != len(buf) {
@@ -298,7 +298,7 @@ parse_stack_trace :: proc(stackTrace: []StackFrame, sameProcess: bool, srcCodeLo
             }
             if pdbErr == nil {
                 mi.pdbHandle = pdbFile
-                pdbr := io.to_reader(os.stream_from_handle(pdbFile))
+                pdbr := io.to_reader(os.to_stream(pdbFile))
                 if streamDir, sdOk := find_stream_dir(pdbr); sdOk {
                     mi.streamDir = streamDir
                     pdbSr := get_stream_reader(&mi.streamDir, PdbStream_Index)
