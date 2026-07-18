@@ -61,6 +61,8 @@ _lines :: proc(bt: Trace, allocator, temp_allocator: runtime.Allocator) -> (out:
 	i := 0
 
 	command := make([dynamic]string, temp_allocator)
+	defer delete(command)
+
 	if _, err := append(&command, ADDR2LINE_PATH, "--functions", "--exe", ""); err != nil { return out, .Out_Of_Memory }
 
 	COMMAND_EXE_POS   :: 3
@@ -116,7 +118,10 @@ _lines :: proc(bt: Trace, allocator, temp_allocator: runtime.Allocator) -> (out:
 	}
 
 	exec_and_fill :: proc(command: []string, out: []Line, msgs: []cstring, allocator, temp_allocator: runtime.Allocator) -> (filled: int, err: Lines_Error) {
-		state, stdout, _, perr := os.process_exec({command = command}, temp_allocator)
+		state, stdout, stderr, perr := os.process_exec({command = command}, temp_allocator)
+		defer delete(stdout, temp_allocator)
+		defer delete(stderr, temp_allocator)
+
 		if perr != nil || !state.success {
 			return 0, .Addr2line_Process_Error
 		}

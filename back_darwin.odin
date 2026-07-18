@@ -50,8 +50,9 @@ _lines_destroy :: proc(lines: []Line, allocator: runtime.Allocator) {
 }
 
 @(private="package")
-_lines :: proc(bt: Trace, allocator, temp_allocator: runtime.Allocator) -> (out: []Line, err: Lines_Error) {
+_lines :: proc(bt: Trace, allocator, _: runtime.Allocator) -> (out: []Line, err: Lines_Error) {
 	out = make([]Line, len(bt), allocator)
+	defer if err != nil { _lines_destroy(out, allocator) }
 
 	symbolicator := CSSymbolicatorCreateWithPid(posix.getpid())
 	defer CSRelease(symbolicator)
