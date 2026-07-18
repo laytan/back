@@ -60,6 +60,8 @@ Lines_Error :: enum {
 	Info_Not_Found,
 }
 
+// TODO: arbitrary skip (argument).
+
 trace :: #force_no_inline proc() -> (bt: Trace_Const) {
 	bt.len = _trace(bt.trace[:])
 	return
