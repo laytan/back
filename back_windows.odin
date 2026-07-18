@@ -5,11 +5,15 @@ package back
 @require import "base:intrinsics"
 @require import "base:runtime"
 
+@require import     "core:io"
 @require import     "core:strings"
 @require import     "core:sync"
+@require import     "core:unicode/utf16"
 @require import win "core:sys/windows"
 
 when !USE_FALLBACK {
+
+SYMOPT_DEFERRED_LOADS :: 0x00000004
 
 _Trace_Entry :: uintptr
 
@@ -59,13 +63,13 @@ _lines :: proc(bt: Trace, allocator, temp_allocator: runtime.Allocator) -> (out:
 	sync.guard(&_win32_dbghelp_mutex)
 
 	win.SymSetOptions(win.SYMOPT_LOAD_LINES|win.SYMOPT_DEFERRED_LOADS)
-	if !win.SymInitializeW(process, nil, true) {
+	if !win.SymInitialize(process, nil, true) {
 		err = .Info_Not_Found
 		return
 	}
 	defer win.SymCleanup(process)
 
-	win.SymSetOptions(win.SYMOPT_LOAD_LINES|win.SYMOPT_DEFERRED_LOADS)
+	win.SymSetOptions(win.SYMOPT_LOAD_LINES|SYMOPT_DEFERRED_LOADS)
 
 	data: [size_of(win.SYMBOL_INFOW) + size_of([256]win.WCHAR)]byte
 	symbol := (^win.SYMBOL_INFOW)(&data[0])
@@ -93,7 +97,7 @@ _lines :: proc(bt: Trace, allocator, temp_allocator: runtime.Allocator) -> (out:
 		lineInfo.SizeOfStruct = size_of(lineInfo)
 		if win.SymGetLineFromAddrW64(process, win.DWORD64(bt[i]), &{}, &lineInfo) {
 			location := strings.builder_make(allocator)
-			strings.write_string16(&location, string16(lineInfo.FileName))
+			write_string16(&location, string16(lineInfo.FileName))
 			when ODIN_ERROR_POS_STYLE == .Default {
 				strings.write_byte(&location, '(')
 				strings.write_int (&location, int(lineInfo.LineNumber))
@@ -113,6 +117,24 @@ _lines :: proc(bt: Trace, allocator, temp_allocator: runtime.Allocator) -> (out:
 		}
 	}
 
+	return
+}
+
+write_string16 :: proc(b: ^strings.Builder, s: string16, loc := #caller_location) -> (n: int, err: io.Error) {
+	for i := 0; i < len(s); i += 1 {
+		r := rune(utf16.REPLACEMENT_CHAR)
+
+		switch c := s[i]; {
+		case c < utf16._surr1, utf16._surr3 <= c:
+			r = rune(c)
+		case utf16._surr1 <= c && c < utf16._surr2 && i+1 < len(s) &&
+		utf16._surr2 <= s[i+1] && s[i+1] < utf16._surr3:
+			r = utf16.decode_surrogate_pair(rune(c), rune(s[i+1]))
+			i += 1
+		}
+
+		n += strings.write_rune(b, rune(r)) or_return
+	}
 	return
 }
 
