@@ -6,9 +6,10 @@ import "base:runtime"
 import "core:fmt"
 import "core:io"
 import "core:os"
+import "core:sync"
 import "core:text/table"
 
-// Size of a constant backtrace, as used by the allocator for example.
+// Size of a constant backtrace, as used by the tracking allocator for example.
 BACKTRACE_SIZE :: #config(BACKTRACE_SIZE, 16)
 
 // For targets that do not have native support (using debug info),
@@ -16,14 +17,21 @@ BACKTRACE_SIZE :: #config(BACKTRACE_SIZE, 16)
 // procedure though, so you can set this to true, add your own instrumentation procs, and have
 // them call `back.other_instrumentation_enter` and `back.other_instrumentation_exit` to hook
 // up the backtraces.
-//
 // The custom proc must have `#force_inline`.
 OTHER_CUSTOM_INSTRUMENTATION :: #config(BACK_OTHER_CUSTOM_INSTRUMENTATION, false)
 
 // Force the fallback instrumentation based implementation instead of debug info based.
 FORCE_FALLBACK :: #config(BACK_FORCE_FALLBACK, false)
 
-USE_FALLBACK :: FORCE_FALLBACK || (ODIN_OS != .Darwin && ODIN_OS != .Linux && ODIN_OS != .Windows)
+// Fallback requires a single module (subtle bugs with multiple modules and instrumentation in Odin),
+// and at least -o:minimal (#force_inline has to actually inline).
+_COULD_USE_FALLBACK_WITHOUT_ERROR :: !ODIN_USE_SEPARATE_MODULES && ODIN_OPTIMIZATION_MODE >= .Minimal
+
+// Use the fallback (instrumentation based) implementation:
+// if it is forced, or it can be used without error and debug info is off, or if the target has no debug info based support.
+USE_FALLBACK :: FORCE_FALLBACK || (_COULD_USE_FALLBACK_WITHOUT_ERROR && !ODIN_DEBUG) || (ODIN_OS != .Darwin && ODIN_OS != .Linux && ODIN_OS != .Windows)
+
+ADDR2LINE_PATH :: #config(TRACE_ADDR2LINE_PATH, "addr2line")
 
 Trace :: []Trace_Entry
 
@@ -40,6 +48,7 @@ Line :: struct {
 	symbol:   string,
 }
 
+// TODO: improve errors.
 Lines_Error :: enum {
 	None,
 	Parse_Address_Fail,
@@ -52,18 +61,18 @@ Lines_Error :: enum {
 }
 
 trace :: #force_no_inline proc() -> (bt: Trace_Const) {
-	bt.len = #force_inline _trace(bt.trace[:])
+	bt.len = _trace(bt.trace[:])
 	return
 }
 
 trace_n :: #force_no_inline proc(max_len: i32, allocator := context.allocator) -> Trace {
 	bt := make([]Trace_Entry, max_len, allocator)
-	n  := #force_inline _trace(bt[:])
+	n  := _trace(bt[:])
 	return bt[:n]
 }
 
 trace_fill :: #force_no_inline proc(buf: Trace) -> int {
-	return #force_inline _trace(buf)
+	return _trace(buf)
 }
 
 trace_n_destroy :: proc(b: Trace, allocator := context.allocator) {
@@ -130,3 +139,7 @@ print :: proc(lines: []Line, padding := "    ", w: Maybe(io.Writer) = nil, temp_
 		io.write_byte(w, '\n')
 	}
 }
+
+// The dbghelp library of win32 is not thread safe, this library uses this mutex to get exclusive access.
+// It is provided in case you want to use the dbghelp library, and want to coordinate access with this package.
+_win32_dbghelp_mutex: sync.Mutex

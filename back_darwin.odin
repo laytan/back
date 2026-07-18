@@ -5,7 +5,7 @@ package back
 @require import "base:runtime"
 
 @require import "core:strings"
-         import "core:sys/posix"
+@require import "core:sys/posix"
 
 when !USE_FALLBACK {
 
@@ -20,7 +20,7 @@ foreign import symbolication "system:CoreSymbolication.framework"
 _Trace_Entry :: rawptr
 
 @(private="package")
-_trace :: proc(buf: Trace) -> (n: int) {
+_trace :: #force_no_inline proc(buf: Trace) -> (n: int) {
 	ctx:    unw_context_t
 	cursor: unw_cursor_t
 
@@ -29,6 +29,10 @@ _trace :: proc(buf: Trace) -> (n: int) {
 	assert(ret == 0)
 	ret = unw_init_local(&cursor, &ctx)
 	assert(ret == 0)
+
+	// Skip this function's frame and the caller.
+	if unw_step(&cursor) <= 0 { return }
+	if unw_step(&cursor) <= 0 { return }
 
 	pc: uintptr
 	for ; unw_step(&cursor) > 0 && n < len(buf); n += 1 {
@@ -69,10 +73,18 @@ _lines :: proc(bt: Trace, allocator, _: runtime.Allocator) -> (out: []Line, err:
 			msg.location = strings.clone_from(CSSymbolOwnerGetPath(owner), allocator)
 		} else {
 			path := string(CSSourceInfoGetPath(info))
-			location := strings.builder_make(0, len(path)+6, allocator)
+			location := strings.builder_make(allocator)
 			strings.write_string(&location, path)
-			strings.write_string(&location, ":")
-			strings.write_int(&location, int(CSSourceInfoGetLineNumber(info)))
+			when ODIN_ERROR_POS_STYLE == .Default {
+				strings.write_byte(&location, '(')
+				strings.write_int (&location,  int(CSSourceInfoGetLineNumber(info)))
+				strings.write_byte(&location, ')')
+			} else when ODIN_ERROR_POS_STYLE == .Unix {
+				strings.write_byte(&location, ':')
+				strings.write_int (&location,  int(CSSourceInfoGetLineNumber(info)))
+			} else {
+				#panic("unhandled ODIN_ERROR_POS_STYLE")
+			}
 			msg.location = strings.to_string(location)
 		}
 	}

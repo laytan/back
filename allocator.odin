@@ -2,11 +2,12 @@
 package back
 
 import "base:runtime"
+
 import "core:fmt"
 import "core:mem"
 import "core:sync"
 
-// The backtrace tracking allocator is the same allocator as the core tracking allocator but keeps
+// The backtrace tracking allocator is a similar allocator as the `core:mem` tracking allocator but keeps
 // backtraces for each allocation.
 //
 // See examples/allocator for a usage snippet.

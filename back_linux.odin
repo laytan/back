@@ -3,13 +3,12 @@
 package back
 
 @require import "base:runtime"
+@require import "base:intrinsics"
 
 @require import "core:c"
 @require import "core:c/libc"
 @require import "core:os"
 @require import "core:strings"
-
-ADDR2LINE_PATH :: #config(TRACE_ADDR2LINE_PATH, "addr2line")
 
 when !USE_FALLBACK {
 
@@ -19,19 +18,23 @@ foreign import lib "system:c"
 _Trace_Entry :: rawptr
 
 @(private="package")
-_trace :: proc(buf: Trace) -> (n: int) {
-	n = int(backtrace(raw_data(buf), i32(len(buf))))
-	return
+_trace :: #force_no_inline proc(buf: Trace) -> (n: int) {
+	// In order to omit this function's frame and the caller, we alloca a temp buffer with 2 extra slots.
+	bigger_buf := ([^]Trace_Entry)(intrinsics.alloca((2 + len(buf)) * size_of(Trace_Entry)))[:len(buf)+2]
+	_n         := int(backtrace(raw_data(bigger_buf)), i32(len(bigger_buf)))
+	if _n > 2 {
+		copy(buf, bigger_buf[2:])
+		return _n-2
+	}
+
+	return 0
 }
 
 @(private="package")
 _lines_destroy :: proc(msgs: []Line, allocator: runtime.Allocator) {
 	for msg in msgs {
 		delete(msg.location, allocator)
-
-		when ODIN_DEBUG {
-			if msg.symbol != "" && msg.symbol != "??" { delete(msg.symbol, allocator) }
-		}
+		if msg.symbol != "??OOM" && msg.symbol != "??" { delete(msg.symbol, allocator) }
 	}
 	delete(msgs, allocator)
 }
@@ -105,18 +108,6 @@ _lines :: proc(bt: Trace, allocator, temp_allocator: runtime.Allocator) -> (out:
 		return msg[:open_idx], msg[open_idx+1:close_idx], nil
 	}
 
-	process_line :: proc(line: string, ok: bool, allocator: runtime.Allocator) -> (string, Lines_Error) {
-		if !ok { return "", .Addr2line_Unexpected_EOF }
-		if line == "" { return "", .Addr2line_Output_Error }
-
-		if len(line) > 1 && (line[0] == '?' || line[0] == ' ') && (line[1] == '?' || line[1] == ' ') {
-			return "??", nil
-		}
-
-		ret, err := strings.clone(strings.trim_right_space(line), allocator)
-		return ret, err == nil ? nil : .Out_Of_Memory
-	}
-
 	exec_and_fill :: proc(command: []string, out: []Line, msgs: []cstring, allocator, temp_allocator: runtime.Allocator) -> (filled: int, err: Lines_Error) {
 		state, stdout, stderr, perr := os.process_exec({command = command}, temp_allocator)
 		defer delete(stdout, temp_allocator)
@@ -130,8 +121,21 @@ _lines :: proc(bt: Trace, allocator, temp_allocator: runtime.Allocator) -> (out:
 
 		sstdout := string(stdout)
 		for i in 0..<count {
-			out[i].symbol   = process_line(strings.split_lines_iterator(&sstdout), allocator) or_return
-			out[i].location = process_line(strings.split_lines_iterator(&sstdout), allocator) or_return
+			out[i].symbol, err = process_line(strings.split_lines_iterator(&sstdout), allocator)
+			if err == .Out_Of_Memory {
+				out[i].symbol = "??OOM"
+			} else if err != nil {
+				return
+			}
+
+			// TODO: parse location and transform to ODIN_ERROR_POS_STYLE
+			out[i].location, err = process_line(strings.split_lines_iterator(&sstdout), allocator)
+			if err == .Out_Of_Memory {
+				out[i].location = "??OOM"
+			} else if err != nil {
+				return
+			}
+
 			if out[i].location == "" || out[i].location == "??" {
 				fallback, mem_err := strings.clone_from(msgs[i], allocator)
 				if mem_err != nil { return 0, .Out_Of_Memory }
@@ -141,6 +145,19 @@ _lines :: proc(bt: Trace, allocator, temp_allocator: runtime.Allocator) -> (out:
 
 		return count, nil
 	}
+
+	process_line :: proc(line: string, ok: bool, allocator: runtime.Allocator) -> (string, Lines_Error) {
+		if !ok { return "", .Addr2line_Unexpected_EOF }
+		if line == "" { return "", .Addr2line_Output_Error }
+
+		if line == "??" {
+			return "??", nil
+		}
+
+		ret, err := strings.clone(strings.trim_right_space(line), allocator)
+		return ret, err == nil ? nil : .Out_Of_Memory
+	}
+
 }
 
 foreign lib {
