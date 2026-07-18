@@ -32,7 +32,6 @@ _trace :: #force_no_inline proc(buf: Trace) -> (n: int) {
 
 	// Skip this function's frame and the caller.
 	if unw_step(&cursor) <= 0 { return }
-	if unw_step(&cursor) <= 0 { return }
 
 	pc: uintptr
 	for ; unw_step(&cursor) > 0 && n < len(buf); n += 1 {
