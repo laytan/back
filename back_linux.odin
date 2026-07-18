@@ -21,7 +21,7 @@ _Trace_Entry :: rawptr
 _trace :: #force_no_inline proc(buf: Trace) -> (n: int) {
 	// In order to omit this function's frame and the caller, we alloca a temp buffer with 2 extra slots.
 	bigger_buf := ([^]Trace_Entry)(intrinsics.alloca((2 + len(buf)) * size_of(Trace_Entry), align_of(Trace_Entry)))[:len(buf)+2]
-	_n         := int(backtrace(raw_data(bigger_buf)), i32(len(bigger_buf)))
+	_n         := int(backtrace(raw_data(bigger_buf), i32(len(bigger_buf))))
 	if _n > 2 {
 		copy(buf, bigger_buf[2:])
 		return _n-2
