@@ -1,13 +1,10 @@
+#+vet explicit-allocators
 package back
 
-import "base:intrinsics"
-
+import "base:runtime"
 import "core:fmt"
 import "core:mem"
-import "core:os"
-import "base:runtime"
 import "core:sync"
-import "core:thread"
 
 // The backtrace tracking allocator is the same allocator as the core tracking allocator but keeps
 // backtraces for each allocation.
@@ -179,15 +176,7 @@ tracking_allocator_proc :: proc(
 	return
 }
 
-Result_Type :: enum {
-	Both,
-	Leaks,
-	Bad_Frees,
-}
-
-tracking_allocator_print_results :: proc(t: ^Tracking_Allocator, type: Result_Type = .Both) {
-	context.allocator = t.internals_allocator
-
+tracking_allocator_print_results :: proc(t: ^Tracking_Allocator, temp_allocator := context.temp_allocator) {
 	when ODIN_OS == .Windows && !ODIN_DEBUG {
 		if type == .Both || type == .Leaks {
 			for _, leak in t.allocation_map {
@@ -207,149 +196,53 @@ tracking_allocator_print_results :: proc(t: ^Tracking_Allocator, type: Result_Ty
 		return
 	}
 
-	// WASM without threading/atomics.
-	when (ODIN_ARCH == .wasm32 || ODIN_ARCH == .wasm64p32) && !intrinsics.has_target_feature("atomics") {
-		if type == .Both || type == .Leaks {
-			for _, leak in t.allocation_map {
-				trace, err := lines(leak.backtrace)
-				defer lines_destroy(trace)
-
-				fmt.eprintf("\x1b[31m%v leaked %m\x1b[0m\n", leak.location, leak.size)
-				fmt.eprintln("[back trace]")
-
-				if err != nil {
-					fmt.eprintf("backtrace error: %v\n", err)
-					continue
-				}
-
-				print(trace)
-				fmt.eprintln()
-			}
-		}
-
-		if type == .Both || type == .Bad_Frees {
-			for bad_free, _ in t.bad_free_array {
-				trace, err := lines(bad_free.backtrace)
-				defer lines_destroy(trace)
-
-				fmt.eprintf(
-					"\x1b[31m%v allocation %p was freed badly\x1b[0m\n",
-					bad_free.location,
-					bad_free.memory,
-				)
-				fmt.eprintln("[back trace]")
-
-				if err != nil {
-					fmt.eprintf("backtrace error: %v\n", err)
-					continue
-				}
-
-				print(trace)
-			}
-		}
-		return
-	}
-
-	Work :: struct {
-		trace:   Trace_Const,
-		result:  []Line,
-		err:     Lines_Error,
-	}
-
-	trace_count: int
-	switch type {
-	case .Both:
-		trace_count = len(t.allocation_map) + len(t.bad_free_array)
-	case .Leaks:
-		trace_count = len(t.allocation_map)
-	case .Bad_Frees:
-		trace_count = len(t.bad_free_array)
-	}
-
-	work := make([]Work, trace_count)
-	defer delete(work)
-
 	i: int
-	if type == .Both || type == .Leaks {
-		for _, leak in t.allocation_map {
-			work[i].trace = leak.backtrace
-			i += 1
-		}
-	}
+	ALLOCATOR_MAX_BACKTRACES :: 16
 
-	if type == .Both || type == .Bad_Frees {
-		for bad_free in t.bad_free_array {
-			work[i].trace   = bad_free.backtrace
-			i += 1
-		}
-	}
+	for _, leak in t.allocation_map {
+		fmt.eprintfln("\x1b[31m%v leaked %m\x1b[0m", leak.location, leak.size)
 
-	extra_threads := max(0, min(os.get_processor_core_count() - 1, trace_count - 1))
-	extra_threads_done: sync.Wait_Group
-	sync.wait_group_add(&extra_threads_done, extra_threads + 1)
-
-	// Processes the slice of work given.
-	thread_proc :: proc(work: ^[]Work, start: int, end: int, extra_threads_done: ^sync.Wait_Group) {
-		defer sync.wait_group_done(extra_threads_done)
-
-		for &entry in work[start:end] {
-			entry.result, entry.err = lines(entry.trace.trace[:entry.trace.len])
-		}
-	}
-
-	thread_work := trace_count / extra_threads if extra_threads != 0 else trace_count
-	worked: int
-	for _ in 0..<extra_threads {
-		thread.run_with_poly_data4(&work, worked, worked + thread_work, &extra_threads_done, thread_proc)
-		worked += thread_work
-	}
-
-	thread_proc(&work, worked, len(work), &extra_threads_done)
-	sync.wait_group_wait(&extra_threads_done)
-
-	if type == .Both || type == .Leaks {
-		work_leaks := work[:len(t.allocation_map)]
-		work = work[len(t.allocation_map):]
-		li: int
-		for _, leak in t.allocation_map {
-			defer li+=1
-
-			fmt.eprintf("\x1b[31m%v leaked %m\x1b[0m\n", leak.location, leak.size)
-			fmt.eprintln("[back trace]")
-
-			work_leak := work_leaks[li]
-			defer lines_destroy(work_leak.result)
-			if work_leak.err != nil {
-				fmt.eprintf("backtrace error: %v\n", work_leak.err)
-				continue
-			}
-
-			print(work_leak.result)
-			fmt.eprintln()
+		defer i += 1
+		if i > ALLOCATOR_MAX_BACKTRACES {
+			continue
 		}
 
-		if len(t.bad_free_array) > 0 { fmt.eprintln() }
+		trace, err := lines(leak.backtrace, temp_allocator, temp_allocator)
+		defer lines_destroy(trace, temp_allocator)
+
+		fmt.eprintln("[back trace]")
+
+		if err != nil {
+			fmt.eprintfln("backtrace error: %v", err)
+			continue
+		}
+
+		print(trace, temp_allocator=temp_allocator)
+		fmt.eprintln()
 	}
 
-	if type == .Both || type == .Bad_Frees {
-		for bad_free, fi in t.bad_free_array {
-			fmt.eprintf(
-				"\x1b[31m%v allocation %p was freed badly\x1b[0m\n",
-				bad_free.location,
-				bad_free.memory,
-			)
-			fmt.eprintln("[back trace]")
+	for bad_free, _ in t.bad_free_array {
+		fmt.eprintfln(
+			"\x1b[31m%v allocation %p was freed badly\x1b[0m",
+			bad_free.location,
+			bad_free.memory,
+		)
 
-			work_free := work[fi]
-			defer lines_destroy(work_free.result)
-			if work_free.err != nil {
-				fmt.eprintf("backtrace error: %v\n", work_free.err)
-				continue
-			}
-
-			print(work_free.result)
-
-			if fi + 1 < len(t.bad_free_array) { fmt.eprintln() }
+		defer i += 1
+		if i > ALLOCATOR_MAX_BACKTRACES {
+			continue
 		}
+
+		trace, err := lines(bad_free.backtrace, temp_allocator, temp_allocator)
+		defer lines_destroy(trace, temp_allocator)
+
+		fmt.eprintln("[back trace]")
+
+		if err != nil {
+			fmt.eprintf("backtrace error: %v\n", err)
+			continue
+		}
+
+		print(trace, temp_allocator=temp_allocator)
 	}
 }

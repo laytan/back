@@ -1,11 +1,12 @@
+#+vet explicit-allocators
 package back
+
+import "base:runtime"
 
 import "core:fmt"
 import "core:io"
 import "core:os"
-import "base:runtime"
 import "core:text/table"
-@(require) import "core:sys/posix"
 
 // Size of a constant backtrace, as used by the allocator for example.
 BACKTRACE_SIZE :: #config(BACKTRACE_SIZE, 16)
@@ -39,26 +40,20 @@ Line :: struct {
 	symbol:   string,
 }
 
-EAGAIN :: posix.EAGAIN when ODIN_OS == .Linux || ODIN_OS == .Darwin else 5
-ENOMEM :: posix.ENOMEM when ODIN_OS == .Linux || ODIN_OS == .Darwin else 6
-EFAULT :: posix.EFAULT when ODIN_OS == .Linux || ODIN_OS == .Darwin else 7
-EMFILE :: posix.EMFILE when ODIN_OS == .Linux || ODIN_OS == .Darwin else 8
-ENFILE :: posix.ENFILE when ODIN_OS == .Linux || ODIN_OS == .Darwin else 9
-ENOSYS :: posix.ENOSYS when ODIN_OS == .Linux || ODIN_OS == .Darwin else 10
-
 Lines_Error :: enum {
 	None,
 	Parse_Address_Fail,
 	Addr2line_Unexpected_EOF,
 	Addr2line_Output_Error,
 	Addr2line_Unresolved,
+	Addr2line_Process_Error,
 
-	Fork_Limited         = int(EAGAIN),
-	Out_Of_Memory        = int(ENOMEM),
-	Invalid_Fd           = int(EFAULT),
-	Pipe_Process_Limited = int(EMFILE),
-	Pipe_System_Limited  = int(ENFILE),
-	Fork_Not_Supported   = int(ENOSYS),
+	Fork_Limited         = _LINES_ERROR_FORK_LIMITED,
+	Out_Of_Memory        = _LINES_ERROR_OUT_OF_MEMORY,
+	Invalid_Fd           = _LINES_ERROR_INVALID_FD,
+	Pipe_Process_Limited = _LINES_ERROR_PIPE_PROCESS_LIMITED,
+	Pipe_System_Limited  = _LINES_ERROR_PIPE_SYSTEM_LIMITED,
+	Fork_Not_Supported   = _LINES_ERROR_FORK_NOT_SUPPORTED,
 
 	Info_Not_Found,
 }
@@ -69,8 +64,7 @@ trace :: #force_no_inline proc() -> (bt: Trace_Const) {
 }
 
 trace_n :: #force_no_inline proc(max_len: i32, allocator := context.allocator) -> Trace {
-	context.allocator = allocator
-	bt := make([]Trace_Entry, max_len)
+	bt := make([]Trace_Entry, max_len, allocator)
 	n  := #force_inline _trace(bt[:])
 	return bt[:n]
 }
@@ -92,45 +86,43 @@ lines :: proc {
 	lines_const,
 }
 
-lines_n :: proc(bt: Trace, allocator := context.allocator) -> (out: []Line, err: Lines_Error) {
-	context.allocator = allocator
-	return _lines(bt)
+lines_n :: proc(bt: Trace, allocator := context.allocator, temp_allocator := context.temp_allocator) -> (out: []Line, err: Lines_Error) {
+	return _lines(bt, allocator, temp_allocator)
 }
 
-lines_const :: proc(bt: Trace_Const, allocator := context.allocator) -> (out: []Line, err: Lines_Error) {
-	context.allocator = allocator
+lines_const :: proc(bt: Trace_Const, allocator := context.allocator, temp_allocator := context.temp_allocator) -> (out: []Line, err: Lines_Error) {
 	bt := bt
-	return _lines(bt.trace[:bt.len])
+	return _lines(bt.trace[:bt.len], allocator, temp_allocator)
 }
 
 lines_destroy :: proc(lines: []Line, allocator := context.allocator) {
-	context.allocator = allocator
-	_lines_destroy(lines)
+	_lines_destroy(lines, allocator)
 }
 
 assertion_failure_proc :: proc(prefix, message: string, loc: runtime.Source_Code_Location) -> ! {
-	t := trace()
-	lines, err := lines(t.trace[:t.len])
-	if err != nil {
-		fmt.eprintf("could not get backtrace for assertion failure: %v\n", err)
-		runtime.default_assertion_failure_proc(prefix, message, loc)
-	} else {
-		fmt.eprintln("[back trace]")
-		print(lines)
-		runtime.default_assertion_failure_proc(prefix, message, loc)
+	{
+		runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
+
+		lines, err := lines(trace(), context.temp_allocator, context.temp_allocator)
+		if err != nil {
+			fmt.eprintf("could not get backtrace for assertion failure: %v\n", err)
+		} else {
+			fmt.eprintln("[back trace]")
+			print(lines, temp_allocator=context.temp_allocator)
+		}
 	}
+
+	runtime.default_assertion_failure_proc(prefix, message, loc)
 }
 
 register_segfault_handler :: proc() {
 	_register_segfault_handler()
 }
 
-print :: proc(lines: []Line, padding := "    ", w: Maybe(io.Writer) = nil, no_temp_guard := false) {
+print :: proc(lines: []Line, padding := "    ", w: Maybe(io.Writer) = nil, temp_allocator := context.temp_allocator) {
 	w := w.? or_else os.to_writer(os.stderr)
 
-	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD(ignore=no_temp_guard)
-
-	tbl := table.init(&table.Table{}, context.temp_allocator, context.temp_allocator)
+	tbl := table.init(&table.Table{}, temp_allocator, temp_allocator)
 
 	for line in lines {
 		table.row(tbl, padding, line.symbol, " - ", line.location)

@@ -1,7 +1,16 @@
+#+vet explicit-allocators
 #+private file
 package back
 
 @require import "core:strings"
+import "core:sys/posix"
+
+_LINES_ERROR_FORK_LIMITED         :: posix.EAGAIN
+_LINES_ERROR_OUT_OF_MEMORY        :: posix.ENOMEM
+_LINES_ERROR_INVALID_FD           :: posix.EFAULT
+_LINES_ERROR_PIPE_PROCESS_LIMITED :: posix.EMFILE
+_LINES_ERROR_PIPE_SYSTEM_LIMITED  :: posix.ENFILE
+_LINES_ERROR_FORK_NOT_SUPPORTED   :: posix.ENOSYS
 
 when !USE_FALLBACK {
 
@@ -37,34 +46,34 @@ _trace :: proc(buf: Trace) -> (n: int) {
 }
 
 @(private="package")
-_lines_destroy :: proc(lines: []Line) {
+_lines_destroy :: proc(lines: []Line, allocator: runtime.Allocator) {
 	for line in lines {
-		delete(line.location)
-		delete(line.symbol)
+		delete(line.location, allocator)
+		delete(line.symbol, allocator)
 	}
-	delete(lines)
+	delete(lines, allocator)
 }
 
 @(private="package")
-_lines :: proc(bt: Trace) -> (out: []Line, err: Lines_Error) {
-	out = make([]Line, len(bt))
+_lines :: proc(bt: Trace, allocator, temp_allocator: runtime.Allocator) -> (out: []Line, err: Lines_Error) {
+	out = make([]Line, len(bt), allocator)
 
-	symbolicator := CSSymbolicatorCreateWithPid(getpid())
+	symbolicator := CSSymbolicatorCreateWithPid(posix.getpid())
 	defer CSRelease(symbolicator)
 
 	for &msg, i in out {
 		symbol := CSSymbolicatorGetSymbolWithAddressAtTime(symbolicator, uintptr(bt[i]), CSNow)
 		info   := CSSymbolicatorGetSourceInfoWithAddressAtTime(symbolicator, uintptr(bt[i]), CSNow)
 
-		msg.symbol = strings.clone_from(CSSymbolGetName(symbol))
+		msg.symbol = strings.clone_from(CSSymbolGetName(symbol), allocator)
 
 		// No debug info.
 		if CSIsNull(info) {
 			owner := CSSymbolGetSymbolOwner(symbol)
-			msg.location = strings.clone_from(CSSymbolOwnerGetPath(owner))
+			msg.location = strings.clone_from(CSSymbolOwnerGetPath(owner), allocator)
 		} else {
 			path := string(CSSourceInfoGetPath(info))
-			location := strings.builder_make(0, len(path)+6)
+			location := strings.builder_make(0, len(path)+6, allocator)
 			strings.write_string(&location, path)
 			strings.write_string(&location, ":")
 			strings.write_int(&location, int(CSSourceInfoGetLineNumber(info)))
@@ -92,7 +101,7 @@ foreign symbolication {
 	@(link_name="CSRelease")
 	_CSRelease :: proc(ref: CSTypeRef) ---
 
-	CSSymbolicatorCreateWithPid :: proc(pid: pid_t) -> CSSymbolicatorRef ---
+	CSSymbolicatorCreateWithPid :: proc(pid: posix.pid_t) -> CSSymbolicatorRef ---
 
 	CSSymbolicatorGetSymbolWithAddressAtTime     :: proc(symbolicator: CSSymbolicatorRef, addr: uintptr, time: u64) -> CSSymbolRef ---
 	CSSymbolicatorGetSourceInfoWithAddressAtTime :: proc(symbolicator: CSSymbolicatorRef, adrr: uintptr, time: u64) -> CSSourceInfoRef ---
@@ -134,15 +143,11 @@ Register :: enum i32 {
 	IP = -1,
 }
 
-pid_t :: distinct i32
-
 foreign system {
 	unw_getcontext :: proc(ctx: ^unw_context_t) -> i32 ---
 	unw_init_local :: proc(cursor: ^unw_cursor_t, ctx: ^unw_context_t) -> i32 ---
 	unw_get_reg    :: proc(cursor: ^unw_cursor_t, name: Register, reg: ^uintptr) -> i32 ---
 	unw_step       :: proc(cursor: ^unw_cursor_t) -> i32 ---
-
-	getpid :: proc() -> pid_t ---
 }
 
 }

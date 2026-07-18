@@ -1,36 +1,34 @@
+#+vet explicit-allocators
 #+private file
 package back
 
-@require import "core:c"
-@require import "core:c/libc"
-@require import "core:fmt"
-@require import "core:os"
-@require import "core:path/filepath"
-@require import "core:slice"
-@require import "core:strings"
 @require import "base:runtime"
 
-ADDR2LINE_PATH := #config(TRACE_ADDR2LINE_PATH, "addr2line")
-PROGRAM        := #config(BACK_PROGRAM, "")
+@require import "core:c"
+@require import "core:c/libc"
+@require import "core:sys/posix"
+@require import "core:os"
+@require import "core:strings"
+
+_LINES_ERROR_FORK_LIMITED         :: posix.EAGAIN
+_LINES_ERROR_OUT_OF_MEMORY        :: posix.ENOMEM
+_LINES_ERROR_INVALID_FD           :: posix.EFAULT
+_LINES_ERROR_PIPE_PROCESS_LIMITED :: posix.EMFILE
+_LINES_ERROR_PIPE_SYSTEM_LIMITED  :: posix.ENFILE
+_LINES_ERROR_FORK_NOT_SUPPORTED   :: posix.ENOSYS
+
+@(private) EAGAIN :: posix.EAGAIN when ODIN_OS == .Linux || ODIN_OS == .Darwin else 5
+@(private) ENOMEM :: posix.ENOMEM when ODIN_OS == .Linux || ODIN_OS == .Darwin else 6
+@(private) EFAULT :: posix.EFAULT when ODIN_OS == .Linux || ODIN_OS == .Darwin else 7
+@(private) EMFILE :: posix.EMFILE when ODIN_OS == .Linux || ODIN_OS == .Darwin else 8
+@(private) ENFILE :: posix.ENFILE when ODIN_OS == .Linux || ODIN_OS == .Darwin else 9
+@(private) ENOSYS :: posix.ENOSYS when ODIN_OS == .Linux || ODIN_OS == .Darwin else 10
+
+ADDR2LINE_PATH :: #config(TRACE_ADDR2LINE_PATH, "addr2line")
 
 when !USE_FALLBACK {
 
 foreign import lib "system:c"
-
-@(init)
-program_init :: proc "contextless" () {
-	context = runtime.default_context()
-	if PROGRAM == "" {
-		PROGRAM = os.args[0]
-		if !filepath.is_abs(PROGRAM) {
-			if abs, err := filepath.abs(PROGRAM, context.allocator); err == nil {
-				PROGRAM = abs
-			} else {
-				fmt.eprintln("back: could not convert `os.args[0]` to an absolute path")
-			}
-		}
-	}
-}
 
 @(private="package")
 _Trace_Entry :: rawptr
@@ -42,129 +40,123 @@ _trace :: proc(buf: Trace) -> (n: int) {
 }
 
 @(private="package")
-_lines_destroy :: proc(msgs: []Line) {
+_lines_destroy :: proc(msgs: []Line, allocator: runtime.Allocator) {
 	for msg in msgs {
-		delete(msg.location)
+		delete(msg.location, allocator)
 
 		when ODIN_DEBUG {
-			if msg.symbol != "" && msg.symbol != "??" { delete(msg.symbol) }
+			if msg.symbol != "" && msg.symbol != "??" { delete(msg.symbol, allocator) }
 		}
 	}
-	delete(msgs)
+	delete(msgs, allocator)
 }
 
 @(private="package")
-_lines :: proc(bt: Trace) -> (out: []Line, err: Lines_Error) {
+_lines :: proc(bt: Trace, allocator, temp_allocator: runtime.Allocator) -> (out: []Line, err: Lines_Error) {
 	msgs := backtrace_symbols(raw_data(bt), i32(len(bt)))[:len(bt)]
 	defer libc.free(raw_data(msgs))
 
-	out = make([]Line, len(bt))
+	out = make([]Line, len(bt), allocator)
+	defer if err != nil { _lines_destroy(out, allocator) }
 
 	// Debug info is needed.
 	when !ODIN_DEBUG {
 		for msg, i in msgs {
+			location, mem_err := strings.clone_from(msg, allocator)
+			if mem_err != nil { return out, .Out_Of_Memory }
+
 			out[i] = Line {
-				location = strings.clone_from(msg),
+				location = location,
 				symbol   = "??",
 			}
 		}
 		return
 	}
 
-	cmd := make_symbolizer_cmd(msgs) or_return
-	defer delete(cmd)
+	i := 0
 
-	fp := popen(cmd, "r")
-	if fp == nil {
-		err = Lines_Error(libc.errno()^)
-		return
-	}
-	defer pclose(fp)
+	command := make([dynamic]string, temp_allocator)
+	if _, err := append(&command, ADDR2LINE_PATH, "--functions", "--exe", ""); err != nil { return out, .Out_Of_Memory }
 
-	// Parse output, each address gets 2 lines of output,
-	// one for the function/symbol and one for the location.
-	// If it could not be resolved, '??' is put out.
-	line_buf: [1024]byte
-	for msg, i in msgs {
-		out[i] = read_message(line_buf[:], fp) or_return
-		if out[i].location == "" || out[i].location == "??" {
-			out[i].location = strings.clone_from(msg)
+	COMMAND_EXE_POS   :: 3
+	COMMAND_START_LEN :: 4
+
+	for msg in msgs {
+		exe, addr := parse_address(msg) or_return
+		if command[COMMAND_EXE_POS] == "" {
+			command[COMMAND_EXE_POS] = exe
+		} else if command[COMMAND_EXE_POS] != exe {
+			i += exec_and_fill(command[:], out[i:], msgs[i:], allocator, temp_allocator) or_return
+
+			command[COMMAND_EXE_POS] = exe
+			resize(&command, COMMAND_START_LEN)
 		}
 
-		line_buf = 0
+		if _, err := append(&command, addr); err != nil { return out, .Out_Of_Memory }
+	}
+
+	if len(command) > COMMAND_START_LEN {
+		i += exec_and_fill(command[:], out[i:], msgs[i:], allocator, temp_allocator) or_return
 	}
 
 	return
-}
 
+	// Parses the exe and address out of a backtrace line.
+	// Example: .../main(+0x20) [0x100000] -> .../main, +0x20, nil
+	parse_address :: proc(cmsg: cstring) -> (string, string, Lines_Error) {
+		msg := string(cmsg)
+		close_idx := strings.last_index_byte(msg, ')')
+		if close_idx < 1 {
+			return "", "", .Parse_Address_Fail
+		}
+
+		open_idx := strings.last_index_byte(msg[:close_idx], '(')
+		if open_idx < 0 {
+			return "", "", .Parse_Address_Fail
+		}
+
+		return msg[:open_idx], msg[open_idx+1:close_idx], nil
+	}
+
+	process_line :: proc(line: string, ok: bool, allocator: runtime.Allocator) -> (string, Lines_Error) {
+		if !ok { return "", .Addr2line_Unexpected_EOF }
+		if line == "" { return "", .Addr2line_Output_Error }
+
+		if len(line) > 1 && (line[0] == '?' || line[0] == ' ') && (line[1] == '?' || line[1] == ' ') {
+			return "??", nil
+		}
+
+		ret, err := strings.clone(strings.trim_right_space(line), allocator)
+		return ret, err == nil ? nil : .Out_Of_Memory
+	}
+
+	exec_and_fill :: proc(command: []string, out: []Line, msgs: []cstring, allocator, temp_allocator: runtime.Allocator) -> (filled: int, err: Lines_Error) {
+		state, stdout, _, perr := os.process_exec({command = command}, temp_allocator)
+		if perr != nil || !state.success {
+			return 0, .Addr2line_Process_Error
+		}
+
+		count := len(command)-COMMAND_START_LEN
+
+		sstdout := string(stdout)
+		for i in 0..<count {
+			out[i].symbol   = process_line(strings.split_lines_iterator(&sstdout), allocator) or_return
+			out[i].location = process_line(strings.split_lines_iterator(&sstdout), allocator) or_return
+			if out[i].location == "" || out[i].location == "??" {
+				fallback, mem_err := strings.clone_from(msgs[i], allocator)
+				if mem_err != nil { return 0, .Out_Of_Memory }
+				out[i].location = fallback
+			}
+		}
+
+		return count, nil
+	}
+}
 
 foreign lib {
 	backtrace :: proc(buffer: [^]rawptr, size: c.int) -> c.int ---
 	backtrace_symbols :: proc(buffer: [^]rawptr, size: c.int) -> [^]cstring ---
 	backtrace_symbols_fd :: proc(buffer: [^]rawptr, size: c.int, fd: ^libc.FILE) ---
-
-	popen :: proc(command: cstring, type: cstring) -> ^libc.FILE ---
-	pclose :: proc(stream: ^libc.FILE) -> c.int ---
-}
-
-// Build command like: `{addr2line_path} {addresses} --functions --exe={program}`.
-make_symbolizer_cmd :: proc(msgs: []cstring) -> (cmd: cstring, err: Lines_Error) {
-	cmd_builder := strings.builder_make()
-
-	strings.write_string(&cmd_builder, ADDR2LINE_PATH)
-
-	for msg in msgs {
-		addr := parse_address(msg) or_return
-
-		strings.write_byte(&cmd_builder, ' ')
-		strings.write_string(&cmd_builder, addr)
-	}
-
-	strings.write_string(&cmd_builder, " --functions --exe=")
-	strings.write_string(&cmd_builder, PROGRAM)
-
-	strings.write_byte(&cmd_builder, 0)
-	return strings.unsafe_string_to_cstring(strings.to_string(cmd_builder)), nil
-}
-
-read_message :: proc(buf: []byte, fp: ^libc.FILE) -> (msg: Line, err: Lines_Error) {
-	msg.symbol   = get_line(buf[:], fp) or_return
-	msg.location = get_line(buf[:], fp) or_return
-	return
-}
-
-get_line :: proc(buf: []byte, fp: ^libc.FILE) -> (string, Lines_Error) {
-	defer slice.zero(buf)
-
-	got := libc.fgets(raw_data(buf), i32(len(buf)), fp)
-	if got == nil {
-		if libc.feof(fp) == 0 {
-			return "", .Addr2line_Unexpected_EOF
-		}
-		return "", .Addr2line_Output_Error
-	}
-
-	cout := cstring(raw_data(buf))
-	if (buf[0] == '?' || buf[0] == ' ') && (buf[1] == '?' || buf[1] == ' ') {
-		return "??", nil
-	}
-
-	ret := strings.clone_from(cout)
-	ret = strings.trim_right_space(ret)
-	return ret, nil
-}
-
-// Parses the address out of a backtrace line.
-// Example: .../main() [0x100000] -> 0x100000
-parse_address :: proc(msg: cstring) -> (string, Lines_Error) {
-	multi := ([^]byte)(msg)
-	msg_len := len(msg)
-	#reverse for c, i in multi[:msg_len] {
-		if c == '[' {
-			return string(multi[i + 1:msg_len - 1]), nil
-		}
-	}
-	return "", .Parse_Address_Fail
 }
 
 }

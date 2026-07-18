@@ -1,13 +1,25 @@
+#+vet explicit-allocators
 package back
 
 @require import "base:runtime"
 
 @require import "core:fmt"
 
+_LINES_ERROR_FORK_LIMITED         :: 5
+_LINES_ERROR_OUT_OF_MEMORY        :: 6
+_LINES_ERROR_INVALID_FD           :: 7
+_LINES_ERROR_PIPE_PROCESS_LIMITED :: 8
+_LINES_ERROR_PIPE_SYSTEM_LIMITED  :: 9
+_LINES_ERROR_FORK_NOT_SUPPORTED   :: 10
+
 when USE_FALLBACK {
 
 when ODIN_OPTIMIZATION_MODE == .None {
 	#panic("the `back` package's `other` mode requires at least `-o:minimal` to work (it requires `#force_inline` to actually be applied)")
+}
+
+when ODIN_USE_SEPARATE_MODULES {
+	#panic("the `back` package's `other` mode requires `-use-single-module` to work (there are subtle instrumentation bugs to hunt down)")
 }
 
 @(no_instrumentation)
@@ -37,27 +49,22 @@ _trace :: proc(buf: Trace) -> (n: int) {
 }
 
 @(private="package")
-_lines_destroy :: proc(lines: []Line) {
+_lines_destroy :: proc(lines: []Line, allocator: runtime.Allocator) {
 	for line in lines {
-		delete(line.location)
+		delete(line.location, allocator)
 	}
 }
 
 @(private="package")
-_lines :: proc(bt: Trace) -> (out: []Line, err: Lines_Error) {
-	out = make([]Line, len(bt))
+_lines :: proc(bt: Trace) -> (out: []Line, err: Lines_Error, allocator, temp_allocator: runtime.Allocator) {
+	out = make([]Line, len(bt), allocator)
 
 	for t, i in bt {
 		out[i].symbol = t.procedure
-		out[i].location = fmt.aprintf("%s(%v:%v)", t.file_path, t.line, t.column)
+		out[i].location = fmt.aprintf("%s(%v:%v)", t.file_path, t.line, t.column, allocator=allocator)
 	}
 
 	return
-}
-
-when ODIN_OS != .Linux && ODIN_OS != .Darwin {
-	@(private="package")
-	_register_segfault_handler :: proc() {}
 }
 
 @(private="file")
