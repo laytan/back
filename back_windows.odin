@@ -62,7 +62,6 @@ _lines :: proc(bt: Trace, allocator, temp_allocator: runtime.Allocator) -> (out:
 
 	sync.guard(&_win32_dbghelp_mutex)
 
-	win.SymSetOptions(win.SYMOPT_LOAD_LINES|win.SYMOPT_DEFERRED_LOADS)
 	if !win.SymInitialize(process, nil, true) {
 		err = .Info_Not_Found
 		return
