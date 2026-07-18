@@ -2,8 +2,10 @@
 #+private file
 package back
 
+@require import "base:runtime"
+
 @require import "core:strings"
-import "core:sys/posix"
+         import "core:sys/posix"
 
 _LINES_ERROR_FORK_LIMITED         :: posix.EAGAIN
 _LINES_ERROR_OUT_OF_MEMORY        :: posix.ENOMEM

@@ -178,20 +178,16 @@ tracking_allocator_proc :: proc(
 
 tracking_allocator_print_results :: proc(t: ^Tracking_Allocator, temp_allocator := context.temp_allocator) {
 	when ODIN_OS == .Windows && !ODIN_DEBUG {
-		if type == .Both || type == .Leaks {
-			for _, leak in t.allocation_map {
-				fmt.eprintf("\x1b[31m%v leaked %m\x1b[0m\n\tCompile with `-debug` to get a back trace\n", leak.location, leak.size)
-			}
+		for _, leak in t.allocation_map {
+			fmt.eprintf("\x1b[31m%v leaked %m\x1b[0m\n\tCompile with `-debug` to get a back trace\n", leak.location, leak.size)
 		}
 
-		if type == .Both || type == .Bad_Frees {
-			for bad_free, _ in t.bad_free_array {
-				fmt.eprintf(
-					"\x1b[31m%v allocation %p was freed badly\x1b[0m\n\tCompile with `-debug` to get a back trace\n",
-					bad_free.location,
-					bad_free.memory,
-				)
-			}
+		for bad_free, _ in t.bad_free_array {
+			fmt.eprintf(
+				"\x1b[31m%v allocation %p was freed badly\x1b[0m\n\tCompile with `-debug` to get a back trace\n",
+				bad_free.location,
+				bad_free.memory,
+			)
 		}
 		return
 	}
