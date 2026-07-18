@@ -3,8 +3,10 @@ package main
 import back "../.."
 
 _main :: proc() {
-	_ = new(int)
-	free(rawptr(uintptr(100)))
+	for _ in 0..<100 {
+		_ = new(int)
+		free(rawptr(uintptr(100)))
+	}
 }
 
 main :: proc() {

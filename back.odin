@@ -1,13 +1,15 @@
+#+vet explicit-allocators
 package back
+
+import "base:runtime"
 
 import "core:fmt"
 import "core:io"
 import "core:os"
-import "base:runtime"
+import "core:sync"
 import "core:text/table"
-@(require) import "core:sys/posix"
 
-// Size of a constant backtrace, as used by the allocator for example.
+// Size of a constant backtrace, as used by the tracking allocator for example.
 BACKTRACE_SIZE :: #config(BACKTRACE_SIZE, 16)
 
 // For targets that do not have native support (using debug info),
@@ -15,14 +17,21 @@ BACKTRACE_SIZE :: #config(BACKTRACE_SIZE, 16)
 // procedure though, so you can set this to true, add your own instrumentation procs, and have
 // them call `back.other_instrumentation_enter` and `back.other_instrumentation_exit` to hook
 // up the backtraces.
-//
 // The custom proc must have `#force_inline`.
 OTHER_CUSTOM_INSTRUMENTATION :: #config(BACK_OTHER_CUSTOM_INSTRUMENTATION, false)
 
 // Force the fallback instrumentation based implementation instead of debug info based.
 FORCE_FALLBACK :: #config(BACK_FORCE_FALLBACK, false)
 
-USE_FALLBACK :: FORCE_FALLBACK || (ODIN_OS != .Darwin && ODIN_OS != .Linux && ODIN_OS != .Windows)
+// Fallback requires a single module (subtle bugs with multiple modules and instrumentation in Odin),
+// and at least -o:minimal (#force_inline has to actually inline).
+_COULD_USE_FALLBACK_WITHOUT_ERROR :: !ODIN_USE_SEPARATE_MODULES && ODIN_OPTIMIZATION_MODE >= .Minimal
+
+// Use the fallback (instrumentation based) implementation:
+// if it is forced, or it can be used without error and debug info is off, or if the target has no debug info based support.
+USE_FALLBACK :: FORCE_FALLBACK || (_COULD_USE_FALLBACK_WITHOUT_ERROR && !ODIN_DEBUG) || (ODIN_OS != .Darwin && ODIN_OS != .Linux && ODIN_OS != .Windows)
+
+ADDR2LINE_PATH :: #config(TRACE_ADDR2LINE_PATH, "addr2line")
 
 Trace :: []Trace_Entry
 
@@ -39,44 +48,33 @@ Line :: struct {
 	symbol:   string,
 }
 
-EAGAIN :: posix.EAGAIN when ODIN_OS == .Linux || ODIN_OS == .Darwin else 5
-ENOMEM :: posix.ENOMEM when ODIN_OS == .Linux || ODIN_OS == .Darwin else 6
-EFAULT :: posix.EFAULT when ODIN_OS == .Linux || ODIN_OS == .Darwin else 7
-EMFILE :: posix.EMFILE when ODIN_OS == .Linux || ODIN_OS == .Darwin else 8
-ENFILE :: posix.ENFILE when ODIN_OS == .Linux || ODIN_OS == .Darwin else 9
-ENOSYS :: posix.ENOSYS when ODIN_OS == .Linux || ODIN_OS == .Darwin else 10
-
+// TODO: improve errors.
 Lines_Error :: enum {
 	None,
 	Parse_Address_Fail,
 	Addr2line_Unexpected_EOF,
 	Addr2line_Output_Error,
 	Addr2line_Unresolved,
-
-	Fork_Limited         = int(EAGAIN),
-	Out_Of_Memory        = int(ENOMEM),
-	Invalid_Fd           = int(EFAULT),
-	Pipe_Process_Limited = int(EMFILE),
-	Pipe_System_Limited  = int(ENFILE),
-	Fork_Not_Supported   = int(ENOSYS),
-
+	Addr2line_Process_Error,
+	Out_Of_Memory,
 	Info_Not_Found,
 }
 
+// TODO: arbitrary skip (argument).
+
 trace :: #force_no_inline proc() -> (bt: Trace_Const) {
-	bt.len = #force_inline _trace(bt.trace[:])
+	bt.len = _trace(bt.trace[:])
 	return
 }
 
 trace_n :: #force_no_inline proc(max_len: i32, allocator := context.allocator) -> Trace {
-	context.allocator = allocator
-	bt := make([]Trace_Entry, max_len)
-	n  := #force_inline _trace(bt[:])
+	bt := make([]Trace_Entry, max_len, allocator)
+	n  := _trace(bt[:])
 	return bt[:n]
 }
 
 trace_fill :: #force_no_inline proc(buf: Trace) -> int {
-	return #force_inline _trace(buf)
+	return _trace(buf)
 }
 
 trace_n_destroy :: proc(b: Trace, allocator := context.allocator) {
@@ -92,45 +90,43 @@ lines :: proc {
 	lines_const,
 }
 
-lines_n :: proc(bt: Trace, allocator := context.allocator) -> (out: []Line, err: Lines_Error) {
-	context.allocator = allocator
-	return _lines(bt)
+lines_n :: proc(bt: Trace, allocator := context.allocator, temp_allocator := context.temp_allocator) -> (out: []Line, err: Lines_Error) {
+	return _lines(bt, allocator, temp_allocator)
 }
 
-lines_const :: proc(bt: Trace_Const, allocator := context.allocator) -> (out: []Line, err: Lines_Error) {
-	context.allocator = allocator
+lines_const :: proc(bt: Trace_Const, allocator := context.allocator, temp_allocator := context.temp_allocator) -> (out: []Line, err: Lines_Error) {
 	bt := bt
-	return _lines(bt.trace[:bt.len])
+	return _lines(bt.trace[:bt.len], allocator, temp_allocator)
 }
 
 lines_destroy :: proc(lines: []Line, allocator := context.allocator) {
-	context.allocator = allocator
-	_lines_destroy(lines)
+	_lines_destroy(lines, allocator)
 }
 
 assertion_failure_proc :: proc(prefix, message: string, loc: runtime.Source_Code_Location) -> ! {
-	t := trace()
-	lines, err := lines(t.trace[:t.len])
-	if err != nil {
-		fmt.eprintf("could not get backtrace for assertion failure: %v\n", err)
-		runtime.default_assertion_failure_proc(prefix, message, loc)
-	} else {
-		fmt.eprintln("[back trace]")
-		print(lines)
-		runtime.default_assertion_failure_proc(prefix, message, loc)
+	{
+		runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
+
+		lines, err := lines(trace(), context.temp_allocator, context.temp_allocator)
+		if err != nil {
+			fmt.eprintf("could not get backtrace for assertion failure: %v\n", err)
+		} else {
+			fmt.eprintln("[back trace]")
+			print(lines, temp_allocator=context.temp_allocator)
+		}
 	}
+
+	runtime.default_assertion_failure_proc(prefix, message, loc)
 }
 
 register_segfault_handler :: proc() {
 	_register_segfault_handler()
 }
 
-print :: proc(lines: []Line, padding := "    ", w: Maybe(io.Writer) = nil, no_temp_guard := false) {
+print :: proc(lines: []Line, padding := "    ", w: Maybe(io.Writer) = nil, temp_allocator := context.temp_allocator) {
 	w := w.? or_else os.to_writer(os.stderr)
 
-	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD(ignore=no_temp_guard)
-
-	tbl := table.init(&table.Table{}, context.temp_allocator, context.temp_allocator)
+	tbl := table.init(&table.Table{}, temp_allocator, temp_allocator)
 
 	for line in lines {
 		table.row(tbl, padding, line.symbol, " - ", line.location)
@@ -145,3 +141,7 @@ print :: proc(lines: []Line, padding := "    ", w: Maybe(io.Writer) = nil, no_te
 		io.write_byte(w, '\n')
 	}
 }
+
+// The dbghelp library of win32 is not thread safe, this library uses this mutex to get exclusive access.
+// It is provided in case you want to use the dbghelp library, and want to coordinate access with this package.
+_win32_dbghelp_mutex: sync.Mutex

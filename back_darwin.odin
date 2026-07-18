@@ -1,7 +1,11 @@
+#+vet explicit-allocators
 #+private file
 package back
 
+@require import "base:runtime"
+
 @require import "core:strings"
+@require import "core:sys/posix"
 
 when !USE_FALLBACK {
 
@@ -16,7 +20,7 @@ foreign import symbolication "system:CoreSymbolication.framework"
 _Trace_Entry :: rawptr
 
 @(private="package")
-_trace :: proc(buf: Trace) -> (n: int) {
+_trace :: #force_no_inline proc(buf: Trace) -> (n: int) {
 	ctx:    unw_context_t
 	cursor: unw_cursor_t
 
@@ -25,6 +29,9 @@ _trace :: proc(buf: Trace) -> (n: int) {
 	assert(ret == 0)
 	ret = unw_init_local(&cursor, &ctx)
 	assert(ret == 0)
+
+	// Skip this function's frame and the caller.
+	if unw_step(&cursor) <= 0 { return }
 
 	pc: uintptr
 	for ; unw_step(&cursor) > 0 && n < len(buf); n += 1 {
@@ -37,37 +44,46 @@ _trace :: proc(buf: Trace) -> (n: int) {
 }
 
 @(private="package")
-_lines_destroy :: proc(lines: []Line) {
+_lines_destroy :: proc(lines: []Line, allocator: runtime.Allocator) {
 	for line in lines {
-		delete(line.location)
-		delete(line.symbol)
+		delete(line.location, allocator)
+		delete(line.symbol, allocator)
 	}
-	delete(lines)
+	delete(lines, allocator)
 }
 
 @(private="package")
-_lines :: proc(bt: Trace) -> (out: []Line, err: Lines_Error) {
-	out = make([]Line, len(bt))
+_lines :: proc(bt: Trace, allocator, _: runtime.Allocator) -> (out: []Line, err: Lines_Error) {
+	out = make([]Line, len(bt), allocator)
+	defer if err != nil { _lines_destroy(out, allocator) }
 
-	symbolicator := CSSymbolicatorCreateWithPid(getpid())
+	symbolicator := CSSymbolicatorCreateWithPid(posix.getpid())
 	defer CSRelease(symbolicator)
 
 	for &msg, i in out {
 		symbol := CSSymbolicatorGetSymbolWithAddressAtTime(symbolicator, uintptr(bt[i]), CSNow)
 		info   := CSSymbolicatorGetSourceInfoWithAddressAtTime(symbolicator, uintptr(bt[i]), CSNow)
 
-		msg.symbol = strings.clone_from(CSSymbolGetName(symbol))
+		msg.symbol = strings.clone_from(CSSymbolGetName(symbol), allocator)
 
 		// No debug info.
 		if CSIsNull(info) {
 			owner := CSSymbolGetSymbolOwner(symbol)
-			msg.location = strings.clone_from(CSSymbolOwnerGetPath(owner))
+			msg.location = strings.clone_from(CSSymbolOwnerGetPath(owner), allocator)
 		} else {
 			path := string(CSSourceInfoGetPath(info))
-			location := strings.builder_make(0, len(path)+6)
+			location := strings.builder_make(allocator)
 			strings.write_string(&location, path)
-			strings.write_string(&location, ":")
-			strings.write_int(&location, int(CSSourceInfoGetLineNumber(info)))
+			when ODIN_ERROR_POS_STYLE == .Default {
+				strings.write_byte(&location, '(')
+				strings.write_int (&location,  int(CSSourceInfoGetLineNumber(info)))
+				strings.write_byte(&location, ')')
+			} else when ODIN_ERROR_POS_STYLE == .Unix {
+				strings.write_byte(&location, ':')
+				strings.write_int (&location,  int(CSSourceInfoGetLineNumber(info)))
+			} else {
+				#panic("unhandled ODIN_ERROR_POS_STYLE")
+			}
 			msg.location = strings.to_string(location)
 		}
 	}
@@ -92,7 +108,7 @@ foreign symbolication {
 	@(link_name="CSRelease")
 	_CSRelease :: proc(ref: CSTypeRef) ---
 
-	CSSymbolicatorCreateWithPid :: proc(pid: pid_t) -> CSSymbolicatorRef ---
+	CSSymbolicatorCreateWithPid :: proc(pid: posix.pid_t) -> CSSymbolicatorRef ---
 
 	CSSymbolicatorGetSymbolWithAddressAtTime     :: proc(symbolicator: CSSymbolicatorRef, addr: uintptr, time: u64) -> CSSymbolRef ---
 	CSSymbolicatorGetSourceInfoWithAddressAtTime :: proc(symbolicator: CSSymbolicatorRef, adrr: uintptr, time: u64) -> CSSourceInfoRef ---
@@ -134,15 +150,11 @@ Register :: enum i32 {
 	IP = -1,
 }
 
-pid_t :: distinct i32
-
 foreign system {
 	unw_getcontext :: proc(ctx: ^unw_context_t) -> i32 ---
 	unw_init_local :: proc(cursor: ^unw_cursor_t, ctx: ^unw_context_t) -> i32 ---
 	unw_get_reg    :: proc(cursor: ^unw_cursor_t, name: Register, reg: ^uintptr) -> i32 ---
 	unw_step       :: proc(cursor: ^unw_cursor_t) -> i32 ---
-
-	getpid :: proc() -> pid_t ---
 }
 
 }

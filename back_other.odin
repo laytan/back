@@ -1,13 +1,18 @@
+#+vet explicit-allocators
 package back
 
 @require import "base:runtime"
 
-@require import "core:fmt"
+@require import "core:strings"
 
 when USE_FALLBACK {
 
 when ODIN_OPTIMIZATION_MODE == .None {
 	#panic("the `back` package's `other` mode requires at least `-o:minimal` to work (it requires `#force_inline` to actually be applied)")
+}
+
+when ODIN_USE_SEPARATE_MODULES {
+	#panic("the `back` package's `other` mode requires `-use-single-module` to work (there are subtle instrumentation bugs to hunt down)")
 }
 
 @(no_instrumentation)
@@ -24,8 +29,13 @@ other_instrumentation_exit :: #force_inline proc "contextless" (a, b: rawptr, lo
 _Trace_Entry :: runtime.Source_Code_Location
 
 @(private="package")
-_trace :: proc(buf: Trace) -> (n: int) {
+_trace :: #force_no_inline proc(buf: Trace) -> (n: int) {
 	lframe := frame
+
+	// Omit this function's frame and the caller.
+	if lframe != nil { lframe = lframe.prev }
+	if lframe != nil { lframe = lframe.prev }
+
 	for lframe != nil && n < len(buf) {
 		buf[n] = lframe.loc
 
@@ -37,27 +47,44 @@ _trace :: proc(buf: Trace) -> (n: int) {
 }
 
 @(private="package")
-_lines_destroy :: proc(lines: []Line) {
+_lines_destroy :: proc(lines: []Line, allocator: runtime.Allocator) {
 	for line in lines {
-		delete(line.location)
+		delete(line.location, allocator)
 	}
 }
 
 @(private="package")
-_lines :: proc(bt: Trace) -> (out: []Line, err: Lines_Error) {
-	out = make([]Line, len(bt))
+_lines :: proc(bt: Trace, allocator, temp_allocator: runtime.Allocator) -> (out: []Line, err: Lines_Error) {
+	out = make([]Line, len(bt), allocator)
 
 	for t, i in bt {
 		out[i].symbol = t.procedure
-		out[i].location = fmt.aprintf("%s(%v:%v)", t.file_path, t.line, t.column)
+
+		location := strings.builder_make(allocator)
+		strings.write_string(&location, t.file_path)
+		when ODIN_ERROR_POS_STYLE == .Default {
+			strings.write_byte(&location, '(')
+			strings.write_int (&location, int(t.line))
+			if t.column != 0 {
+				strings.write_byte(&location, ':')
+				strings.write_int (&location, int(t.column))
+			}
+			strings.write_byte(&location, ')')
+		} else when ODIN_ERROR_POS_STYLE == .Unix {
+			strings.write_byte(&location, ':')
+			strings.write_int (&location, int(t.line))
+			if t.column != 0 {
+				strings.write_byte(&location, ':')
+				strings.write_int (&location, int(t.column))
+			}
+		} else {
+			#panic("unhandled ODIN_ERROR_POS_STYLE")
+		}
+
+		out[i].location = strings.to_string(location)
 	}
 
 	return
-}
-
-when ODIN_OS != .Linux && ODIN_OS != .Darwin {
-	@(private="package")
-	_register_segfault_handler :: proc() {}
 }
 
 @(private="file")
