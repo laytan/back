@@ -7,13 +7,6 @@ package back
 @require import "core:strings"
          import "core:sys/posix"
 
-_LINES_ERROR_FORK_LIMITED         :: posix.EAGAIN
-_LINES_ERROR_OUT_OF_MEMORY        :: posix.ENOMEM
-_LINES_ERROR_INVALID_FD           :: posix.EFAULT
-_LINES_ERROR_PIPE_PROCESS_LIMITED :: posix.EMFILE
-_LINES_ERROR_PIPE_SYSTEM_LIMITED  :: posix.ENFILE
-_LINES_ERROR_FORK_NOT_SUPPORTED   :: posix.ENOSYS
-
 when !USE_FALLBACK {
 
 foreign import system "system:System.framework"

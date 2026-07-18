@@ -8,13 +8,6 @@ package back
 
 @require import "vendor/pdb/pdb"
 
-_LINES_ERROR_FORK_LIMITED         :: 5
-_LINES_ERROR_OUT_OF_MEMORY        :: 6
-_LINES_ERROR_INVALID_FD           :: 7
-_LINES_ERROR_PIPE_PROCESS_LIMITED :: 8
-_LINES_ERROR_PIPE_SYSTEM_LIMITED  :: 9
-_LINES_ERROR_FORK_NOT_SUPPORTED   :: 10
-
 when !USE_FALLBACK {
 
 _Trace_Entry :: pdb.StackFrame
@@ -41,8 +34,8 @@ _lines :: proc(bt: Trace, allocator, temp_allocator: runtime.Allocator) -> (out:
 	context.temp_allocator = temp_allocator
 
 	rb: pdb.RingBuffer(runtime.Source_Code_Location)
-	pdb.init_rb(&rb, len(bt))
-	defer delete(rb.data)
+	pdb.init_rb(&rb, len(bt), temp_allocator)
+	defer delete(rb.data, temp_allocator)
 
 	{
 		context.allocator = context.temp_allocator

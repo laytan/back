@@ -6,23 +6,8 @@ package back
 
 @require import "core:c"
 @require import "core:c/libc"
-@require import "core:sys/posix"
 @require import "core:os"
 @require import "core:strings"
-
-_LINES_ERROR_FORK_LIMITED         :: posix.EAGAIN
-_LINES_ERROR_OUT_OF_MEMORY        :: posix.ENOMEM
-_LINES_ERROR_INVALID_FD           :: posix.EFAULT
-_LINES_ERROR_PIPE_PROCESS_LIMITED :: posix.EMFILE
-_LINES_ERROR_PIPE_SYSTEM_LIMITED  :: posix.ENFILE
-_LINES_ERROR_FORK_NOT_SUPPORTED   :: posix.ENOSYS
-
-@(private) EAGAIN :: posix.EAGAIN when ODIN_OS == .Linux || ODIN_OS == .Darwin else 5
-@(private) ENOMEM :: posix.ENOMEM when ODIN_OS == .Linux || ODIN_OS == .Darwin else 6
-@(private) EFAULT :: posix.EFAULT when ODIN_OS == .Linux || ODIN_OS == .Darwin else 7
-@(private) EMFILE :: posix.EMFILE when ODIN_OS == .Linux || ODIN_OS == .Darwin else 8
-@(private) ENFILE :: posix.ENFILE when ODIN_OS == .Linux || ODIN_OS == .Darwin else 9
-@(private) ENOSYS :: posix.ENOSYS when ODIN_OS == .Linux || ODIN_OS == .Darwin else 10
 
 ADDR2LINE_PATH :: #config(TRACE_ADDR2LINE_PATH, "addr2line")
 

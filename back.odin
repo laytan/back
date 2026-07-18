@@ -47,14 +47,7 @@ Lines_Error :: enum {
 	Addr2line_Output_Error,
 	Addr2line_Unresolved,
 	Addr2line_Process_Error,
-
-	Fork_Limited         = _LINES_ERROR_FORK_LIMITED,
-	Out_Of_Memory        = _LINES_ERROR_OUT_OF_MEMORY,
-	Invalid_Fd           = _LINES_ERROR_INVALID_FD,
-	Pipe_Process_Limited = _LINES_ERROR_PIPE_PROCESS_LIMITED,
-	Pipe_System_Limited  = _LINES_ERROR_PIPE_SYSTEM_LIMITED,
-	Fork_Not_Supported   = _LINES_ERROR_FORK_NOT_SUPPORTED,
-
+	Out_Of_Memory,
 	Info_Not_Found,
 }
 
