@@ -1,5 +1,9 @@
 # Back
 
+> [!IMPORTANT]
+> **This package has been ported to the upstream Odin core collection!**
+> It is now officially available as `core:debug/trace` and is no longer updated in this repository. Please use the core collection version.
+
 Backtraces for Odin, see examples below and in the examples folder.
 
 To change the size (amount of stackframes to print) in places where this can't be set directly, you can use the `-define:BACKTRACE_SIZE=16`.
